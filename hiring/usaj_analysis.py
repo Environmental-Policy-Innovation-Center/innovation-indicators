@@ -62,12 +62,20 @@ def num_openings(dta):
     return job_counts
 
 
-def core_stats(dta):
+def core_stats():
     '''
+    Creates pandas dataframes containing the core statistics for analysis of hiring data
 
+    Inputs:
+        None
+    
+    Outputs:
+        stats_df (pd.df) Metrics for hiring data
+        Additionally writes stats_df directly to .csv
     '''
 
     # Define and prepare working variables
+    dta = clean_data()
     job_counts = num_openings(dta)
     workforce = pd.read_csv('workforce.csv')
     stats = {}
