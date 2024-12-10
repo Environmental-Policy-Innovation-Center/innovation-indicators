@@ -1,0 +1,2211 @@
+---
+title: "Tech Capacity Data Exploration"
+author: "EmmaLi Tsai"
+date: "2024-02-01"
+output: html_document
+---
+
+## Libraries & helper functions: 
+```{r}
+library(tidyverse)
+library(janitor)
+library(rvest)
+library(rebus)
+library(viridis)
+
+source("./functions/assemble_cube.R")
+source("./functions/download_cubes.R")
+```
+
+## Grabbing & assembling data cubes from March 2018 - March 2023 
+```{r}
+# note the folder you'd like to store and pull cubes from: 
+cube_folder <- "./data/test/"
+download_cubes(url = "https://www.opm.gov/data/datasets/Index.aspx?tag=FedScope", 
+               dest_folder = cube_folder, up_to_year = 2013, 
+               month = "March")
+
+# looking at 10-year trends: 
+folder_list <- list.files(cube_folder)
+cube_data_test <- assemble_cube(parent_folder = cube_folder, 
+                                folder_list = folder_list)
+cube_data_10_copy <- cube_data_test
+cube_data_10_copy <- cube_data_10_copy %>%
+  slice(-1)
+# 20 million rows! 
+
+# looking at 5-year trends 
+# cube_folder <- "./data/original_manual/"
+# cube_data_5yr <- assemble_cube(parent_folder = cube_folder, 
+#                                 folder_list = folder_list)
+# cube_data_5_copy <- cube_data_5yr
+# cube_data_5_copy <- cube_data_5_copy %>%
+#   slice(-1)
+# wooooow 12 million rows 
+
+# toggling temporal scale: 
+cube_data <- cube_data_10_copy
+```
+
+## Filtering tidying trends for environmental agencies: 
+```{r}
+# environmental agencies: 
+# DOA (AG), DOC-NOAA (CM-CM54), DOI (IN), EPA (EP)
+enviro_agy_codes <- c("AG", "IN", "EP")
+enviro <- cube_data %>%
+  filter(agy %in% enviro_agy_codes) 
+# grabbing NOAA: 
+noaa <- cube_data %>%
+  filter(agysub == "CM54")
+usace <- cube_data %>%
+  filter(agysub == "ARCE")
+# adding to other environmental agencies: 
+enviro <- rbind(enviro, noaa, usace) %>%
+  mutate(employment = as.numeric(employment)) %>%
+  mutate(salary = as.numeric(salary)) %>%
+  mutate(year = as.numeric(year))
+enviro$agy <- as.factor(enviro$agy)
+levels(enviro$agy) <- c("DOA", "USACE", "DOC-NOAA", "EPA", "DOI")
+
+# tidying string names across the dataframe:   
+enviro <- enviro %>%
+  separate(agysubt, c("abbr", "name"), "-") %>%
+  mutate(name = str_to_title(name), 
+         # name = gsub("U.s. ", "", name), 
+         occt = str_to_title(occt), 
+         los = as.numeric(los), 
+         agyt = str_to_title(agyt)) 
+# writing 
+# write.csv(enviro, "./data/enviro_2013_2023.csv")
+```
+
+## Investigating STEM, tech, data analyst, and research jobs for agencies of interest: 
+```{r}
+# reading in data: 
+enviro <- read.csv("./data/enviro_2013_2023.csv")
+
+# in stem: 2210, 1550, 0854, 1515
+tech_job <- c("1550", "2210", "1515", "0854")
+# computer scientists, IT technology management, operations research, 
+# computer engineering
+
+# in stem: "1530" "1529" "1560" "0150" "1370"
+data_analyst <- c("1560", "1370", "0150", "1530", "1529")
+# data scientists, cartographers, geographers, cartographic technician, 
+# geodetic technician, statistics, mathematical statistics 
+
+# Grabbing stem jobs: 
+enviro_tidy <- enviro %>%
+  mutate(job_type_broad = case_when(!(stemocc %in% c("XXXX", "****")) ~ "STEM_research", 
+                              TRUE ~ "NOT_STEM")) %>%
+  mutate(job_type_specific = case_when(stemocc %in% tech_job ~ "STEM_tech",
+                              stemocc %in% data_analyst ~ "STEM_analyst", 
+                              TRUE ~ job_type_broad)) %>%
+  mutate(job_type_broad = case_when(job_type_broad == "STEM_research" ~ "STEM", 
+                                    TRUE ~ job_type_broad))
+
+# grabbing summary trends for each agency: 
+stem_breakdown_jobs <- enviro_tidy %>%
+  group_by(agy, year, job_type_specific) %>%
+  summarize(job_specific_employment = sum(employment))
+
+# plotting to understand breakdown of jobs at department level
+ggplot(stem_breakdown_jobs, aes(x  = year, y = job_specific_employment, 
+                                color = agy)) + 
+  geom_point() +
+  scale_color_viridis(discrete = TRUE, name = "") +
+  geom_smooth(se = FALSE) + 
+  facet_wrap(~job_type_specific, scale = "free_y") + 
+  theme_bw() + 
+  theme(legend.position = "bottom", 
+        axis.text.x = element_text(angle = 90)) + 
+  scale_x_continuous(breaks = seq(min(stem_breakdown_jobs$year),
+                                  max(stem_breakdown_jobs$year), 1)) + 
+  labs(x = "Year", y = "Employees") + 
+  ggtitle("Department-Trends: Employees in STEM (analyst, research, tech) and non-STEM jobs")
+
+# percentage of workforce: 
+dep_stem_breakdown_per <- pivot_wider(stem_breakdown_jobs, 
+                                  names_from = job_type_specific, 
+                                  values_from = job_specific_employment) %>%
+  mutate(total_emp = rowSums(across(NOT_STEM:STEM_tech), na.rm  = TRUE)) %>%
+  replace(is.na(.), 0) %>%
+  mutate_at(vars(!c("agy","year", "total_emp")), ~((./total_emp)*100)) %>%
+  mutate(total_STEM = rowSums(across(STEM_analyst:STEM_tech)))
+
+# plotting: 
+dep_stem_breakdown_long <- pivot_longer(dep_stem_breakdown_per, cols = c("NOT_STEM", 
+                                                                 "STEM_analyst",
+                                                                 "STEM_research", 
+                                                                 "STEM_tech"))
+
+ggplot(dep_stem_breakdown_long, aes(x  = year, y = value, 
+                                fill = name)) + 
+  geom_bar(stat = "identity") +
+  facet_wrap(~agy) + 
+  scale_fill_viridis(discrete = TRUE, name = "") +
+  theme_bw() + 
+  theme(legend.position = "bottom") + 
+  labs(x = "Year", y = "% of Workforce") + 
+  ggtitle("Department Trends: % of Workforce in STEM (analyst, research, tech) and non-STEM jobs")
+
+```
+
+## Bureau-level trends: 
+```{r}
+bureaus <- c("FOREST SERVICE", "NATURAL RESOURCES CONSERVATION SERVICE", 
+             "U.S. FISH AND WILDLIFE SERVICE", "GEOLOGICAL SURVEY", 
+             "BUREAU OF RECLAMATION", "BUREAU OF LAND MANAGEMENT", 
+             "NATIONAL PARK SERVICE", "ENVIRONMENTAL PROTECTION AGENCY", 
+             "U.S. ARMY CORPS OF ENGINEERS", "NATIONAL OCEANIC AND ATMOSPHERIC ADMINISTRATION")
+bureaus <- str_to_title(bureaus)
+
+stem_breakdown_jobs_b <- enviro_tidy %>%
+  filter(name %in% bureaus) %>%
+  mutate(name = str_to_title(name)) %>%
+  group_by(agy, name, year, job_type_specific) %>%
+  summarize(job_specific_employment = sum(employment)) %>%
+  mutate(name = gsub("U.s. ", "", name)) %>%
+  mutate(agy = case_when(agy == "DOA" ~ "USDA", 
+                         agy == "EPA" ~ "EPA", 
+                         agy == "USACE" ~ "DoArmy", 
+                         agy == "DOC-NOAA" ~ "DOC", 
+                         TRUE ~ agy)) %>%
+  mutate(agy_name = paste0(agy,  "-", name)) %>%
+  mutate(agy_name = case_when(agy_name == "DOC-National Oceanic And Atmospheric Administration" ~ "DOC-NOAA", 
+                              TRUE ~ agy_name)) 
+
+# plotting to understand breakdown of jobs at bureau level
+stem_breakdown <- ggplot(stem_breakdown_jobs_b, aes(x  = year, y = job_specific_employment, 
+                                color = agy_name)) + 
+  geom_point() +
+  geom_smooth(se = FALSE) + 
+  facet_wrap(~job_type_specific, scale = "free_y") + 
+  scale_color_viridis(discrete = TRUE, name = "") +
+  theme_bw() + 
+  theme(legend.position = "bottom", 
+        axis.text.x = element_text(angle = 90)) + 
+  scale_x_continuous(breaks = seq(min(stem_breakdown_jobs$year),
+                                  max(stem_breakdown_jobs$year), 1)) + 
+  labs(x = "Year", y = "Employees") + 
+  ggtitle("Bureau Trends: Employees in STEM (analyst, research, tech) and non-STEM jobs")
+plotly::ggplotly(stem_breakdown)
+
+# percentage of workforce: 
+stem_breakdown_per <- pivot_wider(stem_breakdown_jobs_b, 
+                                  names_from = job_type_specific, 
+                                  values_from = job_specific_employment) %>%
+  mutate(total_emp = rowSums(across(NOT_STEM:STEM_tech), na.rm  = TRUE)) %>%
+  replace(is.na(.), 0) %>%
+  mutate_at(vars(!c("agy", "name", "agy_name", "year", "total_emp")), ~((./total_emp)*100)) %>%
+  mutate(total_STEM = rowSums(across(STEM_analyst:STEM_tech))) %>%
+  rename(subagency = name)
+# plotting: 
+stem_breakdown_long <- pivot_longer(stem_breakdown_per, 
+                                    cols = c("NOT_STEM", 
+                                             "STEM_analyst", 
+                                             "STEM_research", 
+                                             "STEM_tech"))
+# factoring for bar layers: 
+stem_breakdown_long$name <- as.factor(stem_breakdown_long$name)
+levels(stem_breakdown_long$name) <- c("Not STEM", "STEM-analyst", 
+                                 "STEM-research", "STEM-tech")
+stem_breakdown_long <- stem_breakdown_long %>%
+  mutate(value = round(value, 2))
+
+workforce_breakdown <- ggplot(stem_breakdown_long, 
+                              aes(x  = year, y = value, 
+                                  fill = name)) + 
+  geom_bar(stat = "identity") +
+  facet_wrap(~agy_name, ncol =2,
+  labeller = labeller(agy_name = label_wrap_gen(50))) +
+  scale_fill_viridis(discrete = TRUE, name = "") +
+  theme_bw() + 
+  theme(legend.position = "bottom") + 
+  labs(x = "Year", y = "% of Workforce") + 
+  ggtitle("Bureau Trends: % of Workforce in STEM (analyst, research, tech) and non-STEM jobs") 
+  
+plotly::ggplotly(workforce_breakdown)
+
+# creating a line plot: 
+workforce_breakdown_point <- ggplot(stem_breakdown_long, 
+                                    aes(x  = year, y = value, 
+                                        color = agy_name)) + 
+  geom_line() +   
+  geom_point() + 
+  facet_wrap(~name, scales = "free_y") +
+  # scale_fill_viridis(discrete = TRUE, name = "") +
+  scale_color_viridis(discrete = TRUE, name = "") +
+  theme_bw() + 
+  theme(legend.position = "bottom", 
+        axis.text.x = element_text(angle = 90)) + 
+  scale_x_continuous(breaks = seq(min(stem_breakdown_jobs$year), max(stem_breakdown_jobs$year), 1)) + 
+  labs(x = "Year", y = "% of Workforce") + 
+  ggtitle("") 
+
+plotly::ggplotly(workforce_breakdown_point)
+
+
+# checking out ratio of IT staff to non-IT staff: 
+stem_jobs_wide <- pivot_wider(stem_breakdown_jobs_b, 
+                              names_from = job_type_specific,
+                              values_from = job_specific_employment) %>%
+  mutate(non_tech = NOT_STEM + STEM_analyst + STEM_research, 
+         ratio_tech = STEM_tech/non_tech)
+
+stem_jobs_wide$ratio_tech <- round(stem_jobs_wide$ratio_tech, 4)
+
+ratio_tech <- ggplot(stem_jobs_wide, 
+       aes(x  = year, y = ratio_tech, 
+           color = agy_name, 
+           fill = agy_name)) + 
+  geom_line() +   
+  geom_smooth(se = FALSE) + 
+  geom_point() + 
+  scale_fill_viridis(discrete = TRUE, name = "") +
+  scale_color_viridis(discrete = TRUE, name = "") +
+  theme_bw() + 
+  geom_hline(yintercept = 0, lty = "dashed", color = "grey") + 
+  # facet_wrap(~agy_name, ncol = 2) +
+  theme(legend.position = "bottom", 
+        axis.text.x = element_text(angle = 90)) + 
+  guides(fill=guide_legend(ncol=2)) + 
+  scale_x_continuous(breaks = seq(min(stem_jobs_wide$year),
+                                  max(stem_jobs_wide$year), 1)) + 
+  labs(x = "Year", y = "IT staff / Non-IT staff") + 
+  ggtitle("Ratio of IT staff to Non-IT staff as a Proxy for Technical Debt at Environmental Bureaus") 
+plotly::ggplotly(ratio_tech)
+
+# what does supervisory status and length of time in workforce look like? 
+supervis_lvl <- read.table("./data/test/FedScope_Employment_Cube_March2023/DTsuper.txt", 
+                           sep = ",", header = TRUE, fill = TRUE, 
+                           quote = "\"") %>%
+      janitor::clean_names() %>%
+  select(supertypt:supervis)
+
+supervis_los <- enviro_tidy %>%
+  select(-X) %>%
+  filter(name %in% bureaus) %>%
+  mutate(name = str_to_title(name)) %>%
+  left_join(supervis_lvl) %>%
+  filter(job_type_specific == "STEM_tech") %>%
+  group_by(agy, name, year, supertypt) %>%
+  summarize(total = sum(employment), 
+            mean_los = mean(los)) %>%
+  mutate(name = gsub("U.s. ", "", name)) %>%
+  mutate(agy = case_when(agy == "DOA" ~ "USDA",
+                         agy == "EPA" ~ "EPA",
+                         agy == "USACE" ~ "DoArmy",
+                         agy == "DOC-NOAA" ~ "DOC",
+                         TRUE ~ agy)) %>%
+  mutate(agy_name = paste0(agy,  "-", name)) %>%
+  mutate(agy_name = case_when(
+    agy_name == "DOC-National Oceanic And Atmospheric Administration" ~ "DOC-NOAA",
+    TRUE ~ agy_name)) 
+supervis_los <- as.data.frame(supervis_los) 
+
+# want to get the % of IT workforce in each category: 
+tech_jobs <- stem_jobs_wide %>%
+  select(c("agy", "agy_name", "year", "STEM_tech"))
+
+tech_supervis <- merge(supervis_los, tech_jobs, 
+                       by = c("agy", "name", "year", "agy_name")) %>%
+  rename(employees = total) %>%
+  mutate(per_supervis = round((employees/STEM_tech)*100, 2)) %>%
+  filter(supertypt != "Non-Supervisor")
+
+tech_breakdown <- ggplot(tech_supervis, aes(x = year, y = per_supervis, 
+                          fill = supertypt)) + 
+  geom_bar(stat = "identity") + 
+  facet_wrap(~agy_name, ncol = 2) + 
+  scale_fill_manual(values = c("#2A788EFF", "#22A884FF"), name = "") +
+  # scale_color_viridis(discrete = FALSE, name = "") +
+  theme_bw() + 
+  theme(legend.position = "bottom", 
+        axis.text.x = element_text(angle = 90)) + 
+  guides(color = guide_legend(ncol=2)) + 
+  scale_x_continuous(breaks = seq(min(stem_jobs_wide$year),
+                                  max(stem_jobs_wide$year), 1)) + 
+  labs(y = "% IT Workforce", x = "Year")+ 
+  ggtitle("Percentage of IT Staff in Leadership & Supervisor Roles")
+plotly::ggplotly(tech_breakdown, tooltip = c("year", "per_supervis", 
+                                             "supertypt", "mean_los"))
+
+# some stats:
+summary <- tech_supervis %>%
+  group_by(agy_name, supertypt) %>%
+  summarize(mean_pct_emp = mean(per_supervis), 
+            mean_los_all = mean(mean_los))
+
+
+# deeper dive into tech gs levels: 
+gs_tech <- enviro_tidy %>%
+  filter(name %in% bureaus) %>%
+  mutate(name = str_to_title(name)) %>%
+  group_by(agy, name, year, job_type_specific, ppgrd) %>%
+  summarize(job_specific_employment = sum(employment)) %>%
+  mutate(name = gsub("U.s. ", "", name)) %>%
+  mutate(agy = case_when(agy == "DOA" ~ "USDA", 
+                         agy == "EPA" ~ "EPA", 
+                         agy == "USACE" ~ "DoArmy", 
+                         agy == "DOC-NOAA" ~ "DOC", 
+                         TRUE ~ agy)) %>%
+  mutate(agy_name = paste0(agy,  "-", name)) %>%
+  mutate(agy_name = 
+           case_when(agy_name == "DOC-National Oceanic And Atmospheric Administration" ~ "DOC-NOAA", 
+                              TRUE ~ agy_name)) %>%
+  filter(job_type_specific == "STEM_tech")
+
+gs_summary <- gs_tech %>%
+  group_by(agy_name,job_type_specific, ppgrd, year) %>%
+  summarize(total_employees = sum(job_specific_employment)) 
+
+# merging with total stem tech workforce: 
+tech_jobs <- tech_supervis %>%
+  select(c("agy_name", "year", "STEM_tech")) %>%
+  unique()
+
+# NOTE: there's an AD-00 but no way to tell crosswalk without steps based on: https://www.ownyourownfuture.com/ad-00-pay-scale/
+gs_per <- merge(gs_summary, tech_jobs) %>%
+  mutate(percent_IT = (total_employees/STEM_tech)*100)  %>%
+  mutate(ppgrd_corrected = 
+           case_when(
+             # Exec schedule - all above the GS-15 level: https://www.federalpay.org/ses/2022
+             # ZP to GS crosswalks: https://www.nist.gov/system/files/documents/2021/01/05/DCB-2021.pdf
+             # DJ to GS crosswalks: https://mrdc-pdp.health.mil/assets/docs/payout/pdpchart2022.pdf
+             # senior level scientific positions: https://www.opm.gov/policy-data-oversight/senior-executive-service/senior-level-scientific-and-professional-positions/             
+             ppgrd %in% c("DB-01") ~ "GS-04", 
+             ppgrd %in% c("ZP-01", "DJ-01") ~ "GS-06", 
+             ppgrd %in% c("ZP-02", "DJ-02") ~ "GS-09", # I don' think gs-10 exists...? Putting this to gs-9
+             ppgrd %in% c("ZP-03", "DJ-03", "DB-02", "GG-12") ~ "GS-12", 
+             ppgrd %in% c("GM-13", "GG-13") ~ "GS-13", 
+             ppgrd %in% c("ZP-04", "DJ-04", "DB-03", "GM-14") ~ "GS-14",
+             # NOTE: that I capped everything at the GS-15 level (recognizing 
+             # levels above exist)
+             ppgrd %in% c("ZP-05", "DJ-05", "SL-00", "ES-**", "DB-04", "DB-05", "DB-06", 
+                          "GM-15") ~ "GS-15",
+             TRUE ~ ppgrd
+           )) %>%
+  filter(ppgrd_corrected %in% c("GS-04", "GS-05", "GS-06", "GS-07", 
+                                "GS-09", "GS-11", "GS-12", "GS-13",
+                                "GS-14", "GS-15")) %>%
+  mutate(pay_scale_simple = case_when(
+    ppgrd_corrected %in% c("GS-04", "GS-05", "GS-06", "GS-07", 
+                                "GS-09") ~ "GS 04-09",
+    ppgrd_corrected %in% c("GS-11", "GS-12", "GS-13",
+                           "GS-14", "GS-15") ~ "GS 11-15"
+  )) 
+
+gs_per <- gs_per %>%
+  group_by(agy_name, year, pay_scale_simple) %>%
+  summarize(total_emp = sum(total_employees), 
+            all_IT = mean(STEM_tech)) %>%
+  mutate(percent = total_emp/all_IT*100)
+
+# Still missing crosswalks for AD-00, EF-00, ED-00, and EH-00, but 
+# it's such a small % of employees I'm not too worried
+it_gs_levels <- ggplot(gs_per, aes(x = year, y = percent, 
+                          fill = pay_scale_simple)) + 
+  geom_bar(stat = "identity") + 
+  facet_wrap(~agy_name, ncol = 2) + 
+  scale_fill_manual(values = c("#404677ff", "#3cbb75ff"), name = "") +
+  # scale_fill_viridis(discrete = TRUE, name = "") +
+  theme_bw() + 
+  theme(legend.position = "bottom", 
+        axis.text.x = element_text(angle = 90)) + 
+  guides(color = guide_legend(ncol=2)) + 
+  scale_x_continuous(breaks = seq(min(stem_jobs_wide$year),
+                                  max(stem_jobs_wide$year), 1)) + 
+  labs(y = "% IT Workforce", x = "Year")+ 
+  ggtitle("Percentage of IT Staff in General Schedule Categories")
+plotly::ggplotly(it_gs_levels)
+
+
+# looking at absolute growth through time: 
+growth <- stem_breakdown_jobs_b %>%
+  filter(year %in% c("2013", "2023"))
+growth_wide <- pivot_wider(growth, names_from = year, 
+                           values_from = job_specific_employment) %>%
+  mutate(`2023` = replace_na(`2023`, 0), 
+         growth = `2023` - `2013`, 
+         per_change = (`2023` - `2013`)/`2013`*100)
+
+growth_emp <- ggplot(growth_wide, aes(x = agy_name, 
+                                      y = growth, 
+                                      fill = agy_name)) + 
+  labs(y = "Growth in Employees (2023 - 2013)", x = "") + 
+  scale_fill_viridis(discrete = TRUE, name = "") + 
+  geom_hline(yintercept = 0, lty = "dashed") + 
+  coord_flip() + 
+  theme_bw() + 
+  theme(legend.position = "none") +
+  geom_bar(stat = "identity") + 
+  facet_wrap(~job_type_specific, scales = "free_x")  +
+  ggtitle("Employment Growth at Environmental Bureaus - 2013 to 2023")
+plotly::ggplotly(growth_emp)
+```
+
+## Taking a deeper dive into duty location: 
+```{r}
+loc <- read.table("./data/test/FedScope_Employment_Cube_March2023/DTloc.txt", 
+                  sep = ",", header = TRUE, fill = TRUE, 
+                  quote = "\"") %>%
+  janitor::clean_names() %>%
+  select(c("loc", "loct"))
+
+enviro_tidy_loc <- merge(enviro_tidy %>% select(-X), 
+                         loc, by = "loc")
+```
+
+
+## Taking a deeper dive into DOA trends: 
+```{r}
+usfs_jobs <- enviro_tidy %>%
+  filter(agy == "DOA") %>%
+  group_by(name, year, job_type_specific) %>%
+  summarize(job_specific_employment = sum(employment))
+
+# plotting to understand breakdown of jobs at bureau level
+ggplot(usfs_jobs, aes(x  = year, y = job_specific_employment, 
+                                color = job_type_specific)) + 
+  geom_point() +
+  geom_smooth(se = FALSE) + 
+  facet_wrap(~name, scale = "free_y") + 
+  scale_color_viridis(discrete = TRUE, name = "") +
+  theme_bw() + 
+  theme(legend.position = "bottom", 
+        axis.text.x = element_text(angle = 90)) + 
+  scale_x_continuous(breaks = seq(min(usfs_jobs$year),
+                                  max(usfs_jobs$year), 1)) + 
+  labs(x = "Year", y = "Employees") + 
+  ggtitle("Bureau Trends: Employees in STEM (analyst, research, tech) and non-STEM jobs")
+
+# grabbing some of the largest subagencies: 
+top_usfs_subagy <- pivot_wider(usfs_jobs, 
+                         names_from = job_type_specific, 
+                         values_from = job_specific_employment) %>%
+  mutate(total_emp = rowSums(across(NOT_STEM:STEM_tech), na.rm  = TRUE)) %>%
+  group_by(name) %>%
+  summarize(mean_emp = mean(total_emp))
+
+top_usfs_subagy <- top_usfs_subagy[order(top_usfs_subagy$mean_emp, decreasing = TRUE),]
+
+top_agencies <- top_usfs_subagy$name[1:15]
+# plotting to understand breakdown of jobs at bureau level
+top_trends <- usfs_jobs %>% filter(name %in% top_agencies)
+ggplot(top_trends, 
+       aes(x  = year, y = job_specific_employment, 
+                                color = job_type_specific)) + 
+  geom_point() +
+  geom_smooth(se = FALSE) + 
+  facet_wrap(~name, scale = "free_y") + 
+  scale_color_viridis(discrete = TRUE, name = "") +
+  theme_bw() + 
+  theme(legend.position = "bottom", 
+        axis.text.x = element_text(angle = 90)) + 
+  scale_x_continuous(breaks = seq(min(usfs_jobs$year),
+                                  max(usfs_jobs$year), 1)) + 
+  labs(x = "Year", y = "Employees") + 
+  ggtitle("DOA Trends: Employees in STEM (analyst, research, tech) and non-STEM jobs")
+
+ggplot(top_trends, 
+       aes(x  = year, y = job_specific_employment, 
+                                color = name)) + 
+  geom_point() +
+  geom_smooth(se = FALSE) + 
+  facet_wrap(~job_type_specific, scale = "free_y") + 
+  scale_color_viridis(discrete = TRUE, name = "") +
+  theme_bw() + 
+  theme(legend.position = "bottom", 
+        axis.text.x = element_text(angle = 90)) + 
+  scale_x_continuous(breaks = seq(min(usfs_jobs$year),
+                                  max(usfs_jobs$year), 1)) + 
+  labs(x = "Year", y = "Employees") + 
+  ggtitle("DOA Trends: Employees in STEM (analyst, research, tech) and non-STEM jobs")
+```
+
+## Revisions from round 2: 
+intro: call this out as a blog series, beef intro to note tech talent
+results: 
+start with whole staff trends (net increase by bureau), focus first on stem-tech trends first as the core finding, 
+talk about anomalies (i.e., also show trends of others in the department not in that bureau- rest of USDA & DOI; weird USDA, and data analyst category)
+follow-up figure of “recognize that not only these job classifications are performing tech-related work” - show same trends but aggregating all STEM trends together (i.e., showing tech trends & stem trends side-by-side or together), basically putting tech trends in context of larger STEM trends 
+leave out supervisory and leadership graphs (could do that in a future blog). 
+Next steps - get the blog together and then we can put it in front of the right people - maybe presentation mid-march?!
+
+```{r}
+head(enviro_tidy)
+enviro_tidy_final <- enviro_tidy %>%
+  filter(name %in% bureaus) %>%
+  mutate(name = str_to_title(name)) %>%
+  mutate(name = gsub("U.s. ", "", name)) %>%
+  mutate(agy = case_when(agy == "DOA" ~ "USDA", 
+                         agy == "EPA" ~ "EPA", 
+                         agy == "USACE" ~ "Army", 
+                         agy == "DOC-NOAA" ~ "DOC", 
+                         TRUE ~ agy)) %>%
+  mutate(agy_name = paste0(agy,  "-", name)) %>%
+  mutate(agy_name = 
+           case_when(agy_name == "DOC-National Oceanic And Atmospheric Administration" ~ "DOC-NOAA", 
+                     agy_name == "Army-Army Corps Of Engineers" ~ "Army Corps of Engineers",
+                     TRUE ~ agy_name)) 
+all_emp <- enviro_tidy_final %>%
+  select(-X) %>%
+  group_by(agy, agy_name, year) %>%
+  summarize(total_employees = sum(employment))
+
+net_change <- all_emp %>%
+  filter(year %in% c(2013, 2023)) %>%
+  pivot_wider(names_from = year, values_from = total_employees) %>%
+  mutate(net_change = `2023` - `2013`)
+  
+# also wanting to add larger DOI & USDA trends: 
+just_usda_doi <- enviro_tidy %>%
+  mutate(name = str_to_title(name)) %>%
+  mutate(name = gsub("U.s. ", "", name)) %>%
+  mutate(agy = case_when(agy == "DOA" ~ "USDA", 
+                         agy == "EPA" ~ "EPA", 
+                         agy == "USACE" ~ "Army", 
+                         agy == "DOC-NOAA" ~ "DOC", 
+                         TRUE ~ agy)) %>%
+  mutate(agy_name = paste0(agy,  "-", name)) %>%
+  mutate(agy_name = 
+           case_when(agy_name == "DOC-National Oceanic And Atmospheric Administration" ~ "DOC-NOAA", 
+                     agy_name == "Army-Army Corps Of Engineers" ~ "Army Corps of Engineers",
+                     TRUE ~ agy_name)) 
+
+just_usda_doi <- just_usda_doi %>%
+  select(-X) %>%
+  group_by(agyt, year) %>%
+  summarize(total_employees = sum(employment)) %>%
+  filter(agyt %in% c("Ag-Department Of Agriculture", "In-Department Of The Interior")) %>%
+  mutate(agyt = case_when(
+    agyt == "Ag-Department Of Agriculture" ~ "USDA", 
+    TRUE ~ "DOI")) %>%
+  rename(agy_name = agyt) %>%
+  mutate(agy = agy_name)
+
+# net_change <- all_emp %>%
+#   filter(year %in% c(2013, 2023)) %>%
+#   pivot_wider(names_from = year, values_from = total_employees) %>%
+#   mutate(net_change = `2023` - `2013`)
+
+total_emp_plot <- ggplot(all_emp, aes(x = year, y = total_employees, 
+                                      color = agy_name)) + 
+  geom_point(size = 2) + 
+  facet_wrap(~agy, scales = "free") + 
+  geom_smooth(se = FALSE, size = 2) + 
+  # geom_smooth(data = just_usda_doi,  
+  #             se = FALSE, lty = "dashed") +
+  scale_color_manual(values = c("#606c38", "#2a9d8f",
+                                # "#8a817c",
+                                "#fb8500", "#ffb703",
+                                "#d62828", "#b5838d", 
+                                "#e5989b", "#84a98c", 
+                                # "#bcb8b1",
+                                "#9a8c98", "#4a4e69"), 
+                     name = "") + 
+  # scale_color_viridis(discrete = TRUE, name = "") + 
+  theme_minimal() +
+  theme(legend.position = "bottom", 
+        axis.text.x = element_text(angle = 90)) + 
+  guides(color = guide_legend(ncol=3)) + 
+  scale_x_continuous(breaks = seq(min(stem_jobs_wide$year),
+                                  max(stem_jobs_wide$year),
+                                  1)) + 
+  labs(x = "Year", y = "Total Employees") + 
+  # ggtitle("Employment Trends at Environmental Bureaus") +
+  theme(text=element_text(size=15))
+total_emp_plot
+plotly::ggplotly(total_emp_plot)
+
+
+# looking at workforce organization: 
+stem_jobs_final <- stem_jobs_wide %>%
+  mutate(STEM_analyst_research = STEM_analyst + STEM_research) %>%
+  pivot_longer(cols = c(STEM_analyst_research, STEM_tech), names_to = "final")
+
+stem_jobs_plot <- ggplot(stem_jobs_final, aes(x = year, y = value, 
+                            color = agy_name, fill = agy_name)) + 
+  geom_point() + 
+  geom_smooth(se = FALSE) + 
+  theme_bw() + 
+  facet_wrap(~final, scales = "free_y") +
+  scale_color_viridis(discrete = TRUE, name = "") + 
+  scale_fill_viridis(discrete = TRUE, name = "") + 
+  theme(legend.position = "bottom", 
+        axis.text.x = element_text(angle = 90)) + 
+  guides(color = guide_legend(ncol=2)) + 
+  scale_x_continuous(breaks = seq(min(stem_jobs_wide$year),
+                                  max(stem_jobs_wide$year), 1)) 
+
+plotly::ggplotly(stem_jobs_plot)
+
+
+just_tech <- ggplot(stem_jobs_final, aes(x = year, y = ratio_tech*100, 
+                            color = agy_name, fill = agy_name)) + 
+  geom_point() + 
+  theme_bw() + 
+  geom_smooth(se = FALSE) + 
+  labs(x = "Year", y = "% Workforce in Tech")+
+  scale_color_viridis(discrete = TRUE, name = "") + 
+  scale_fill_viridis(discrete = TRUE, name = "") + 
+  theme(legend.position = "bottom", 
+        axis.text.x = element_text(angle = 90)) + 
+  guides(color = guide_legend(ncol=2)) + 
+  scale_x_continuous(breaks = seq(min(stem_jobs_wide$year),
+                                  max(stem_jobs_wide$year), 1)) 
+plotly::ggplotly(just_tech)
+
+net_change_tech <- stem_jobs_final %>%
+  filter(year %in% c(2013, 2023)) %>%
+  select(c("agy", "name", "year", "agy_name", "ratio_tech")) %>%
+  mutate(ratio_tech = ratio_tech*100) %>%
+  unique(.) %>%
+  pivot_wider(names_from = year, values_from = ratio_tech) %>%
+  mutate(`2023` = replace_na(`2023`, 0),
+    net_change = `2023` - `2013`)
+
+
+head(stem_jobs_wide)
+stem_jobs_reorg <- stem_jobs_wide %>%
+  mutate(STEM = STEM_analyst + STEM_research, 
+         total_employees = NOT_STEM + STEM_tech + STEM) %>%
+  select(-c("STEM_analyst", "STEM_research", 
+            "non_tech", "ratio_tech")) %>%
+  rename(Tech = STEM_tech, 
+         `Not STEM` = NOT_STEM) %>%
+  pivot_longer(`Not STEM`:STEM, names_to = "job_group")  %>%
+  mutate(percent_workforce = round((value/total_employees)*100, 3))
+
+
+jobs_reorg <- ggplot(stem_jobs_reorg, aes(x = year, 
+                                          y = percent_workforce, 
+                                          color = agy_name)) +
+  geom_point(size = 2) +
+  geom_smooth(se = FALSE, size = 2) + 
+  facet_wrap(~job_group, scales = "free_y") + 
+  # theme_bw() +
+  # scale_color_viridis(discrete = TRUE, name = "") + 
+  scale_color_manual(values = c("#606c38", "#2a9d8f", 
+                                "#fb8500", "#ffb703",
+                                "#d62828", "#b5838d", 
+                                "#e5989b", "#84a98c", 
+                                "#9a8c98", "#4a4e69"), 
+                     name = "") + 
+  # scale_color_viridis(discrete = TRUE, name = "") + 
+  theme_minimal() +
+  theme(legend.position = "bottom", 
+        axis.text.x = element_text(angle = 90)) + 
+  guides(color = guide_legend(ncol=3)) + 
+  scale_x_continuous(breaks = seq(min(stem_jobs_wide$year),
+                                  max(stem_jobs_wide$year),
+                                  1)) + 
+  labs(x = "Year", y = "% of Workforce") + 
+  # ggtitle("Employment Trends at Environmental Bureaus") +
+  theme(text=element_text(size=15))
+jobs_reorg
+plotly::ggplotly(jobs_reorg)
+
+# total_emp_plot <- ggplot(all_emp, aes(x = year, y = total_employees, 
+#                                       color = agy_name)) + 
+#   geom_point(size = 2) + 
+#   facet_wrap(~agy, scales = "free") + 
+#   geom_smooth(se = FALSE, size = 2) + 
+#   scale_color_manual(values = c("#606c38", "#2a9d8f", 
+#                                 "#fb8500", "#ffb703",
+#                                 "#d62828", "#b5838d", 
+#                                 "#e5989b", "#84a98c", 
+#                                 "#9a8c98", "#4a4e69"), 
+#                      name = "") + 
+#   # scale_color_viridis(discrete = TRUE, name = "") + 
+#   theme_minimal() +
+#   theme(legend.position = "bottom", 
+#         axis.text.x = element_text(angle = 90)) + 
+#   guides(color = guide_legend(ncol=3)) + 
+#   scale_x_continuous(breaks = seq(min(stem_jobs_wide$year),
+#                                   max(stem_jobs_wide$year),
+#                                   1)) + 
+#   labs(x = "Year", y = "Total Employees") + 
+#   # ggtitle("Employment Trends at Environmental Bureaus") +
+#   theme(text=element_text(size=15))
+```
+
+Looking broadly at USDA & DOI
+```{r}
+usda_doi <- enviro_tidy %>%
+  # filter(!(name %in% bureaus)) %>%
+  mutate(name = str_to_title(name)) %>%
+  mutate(name = gsub("U.s. ", "", name)) %>%
+  mutate(agy = case_when(agy == "DOA" ~ "USDA", 
+                         agy == "EPA" ~ "EPA", 
+                         agy == "USACE" ~ "DoArmy", 
+                         agy == "DOC-NOAA" ~ "DOC", 
+                         TRUE ~ agy)) %>%
+  mutate(agy_name = paste0(agy,  "-", name)) %>%
+  mutate(agy_name = case_when(agy_name == "DOC-National Oceanic And Atmospheric Administration" ~ "DOC-NOAA", 
+                              TRUE ~ agy_name)) %>%
+  filter(agy %in% c("USDA", "DOI"))
+
+usda_doi_filt <- usda_doi %>%
+  group_by(agy, name, year, job_type_specific) %>%
+  summarize(job_specific_employment = sum(employment)) %>%
+  pivot_wider(names_from = job_type_specific, values_from = job_specific_employment) %>%
+  mutate(STEM = STEM_analyst + STEM_research, 
+         Tech = STEM_tech, 
+         `Not STEM` = NOT_STEM) %>%
+  select(agy, name, year, STEM:`Not STEM`) %>%
+  group_by(agy, year) %>%
+  summarize(STEM = sum(STEM, na.rm = T), 
+            Tech = sum(Tech, na.rm = T), 
+            `Not STEM` = sum(`Not STEM`)) %>%
+  mutate(total_employees = STEM + Tech + `Not STEM`) %>%
+  pivot_longer(STEM:`Not STEM`) %>%
+  mutate(percent_workforce = (value/total_employees)*100)
+
+ggplot(usda_doi_filt, aes(x = year, 
+                          y = percent_workforce, 
+                          color = agy)) +
+  geom_point() +
+  geom_smooth(se = FALSE) + 
+  facet_wrap(~name, scales = "free_y")+ 
+  theme_bw() +
+  scale_color_viridis(discrete = TRUE, name = "") + 
+  theme(legend.position = "bottom", 
+        axis.text.x = element_text(angle = 90)) + 
+  guides(color = guide_legend(ncol=2)) + 
+  scale_x_continuous(breaks = seq(min(stem_jobs_wide$year),
+                                  max(stem_jobs_wide$year), 1)) + 
+  labs(x = "Year", y = "% of Workforce") 
+
+# putting this in context with other trends: 
+names(stem_jobs_reorg)
+
+usgs <- enviro_tidy %>%
+  filter(name == "Geological Survey") %>%
+  group_by(year, job_type_specific) %>%
+  summarize(total_emp = sum(employment))
+
+ggplot(usgs, aes(x = year, 
+                          y = total_emp, 
+                          color = job_type_specific)) +
+  geom_point() +
+  # geom_smooth(se = FALSE) + 
+  geom_line()  # facet_wrap(~job_type_specific, scales = "free")
+
+
+# can I plot this with the original trends? 
+names(usda_doi_filt)
+names(stem_jobs_reorg)
+stem_jobs_bureau <- stem_jobs_reorg %>%
+  as.data.frame() %>%
+  select(-c("agy", "name")) %>% 
+  rename(agy = agy_name, 
+         name = job_group)
+
+stem_jobs_bureau <- stem_jobs_bureau[, names(usda_doi_filt)]
+
+all_trends <- rbind(usda_doi_filt, stem_jobs_bureau)
+
+
+# fixing DoArmy :
+stem_jobs_bureau <- stem_jobs_bureau %>%
+  mutate(agy = case_when(agy == "DoArmy-Army Corps Of Engineers" ~ "Army Corps of Engineers", 
+                         TRUE ~ agy))
+
+doi <- c("DOI", "DOI-Bureau Of Land Management", "DOI-Bureau Of Reclamation", 
+         "DOI-Fish And Wildlife Service", "DOI-Geological Survey", "DOI-National Park Service")
+doi_colors <- c("#fb8500", "#ffb703",
+                "#d62828", "#b5838d", 
+                "#e5989b", "#8a817c")
+
+
+usda <- c("USDA", "USDA-Forest Service", "USDA-Natural Resources Conservation Service")
+usda_colors <- c("#9a8c98", "#4a4e69", "#bcb8b1")
+
+plot_data <- stem_jobs_bureau %>% filter(name != "Not STEM") %>% filter(agy %in% doi)
+  # filter(!(agy %in% c(doi, usda))) %>%
+  # filter(agy %in% usda)
+
+doi_plot <- ggplot(plot_data, 
+                   aes(x = year, 
+                       y = percent_workforce, 
+                       color = agy)) +
+  geom_point(size = 1) +
+  geom_smooth(se = FALSE, size = 1) + 
+  geom_smooth(data = usda_doi_filt %>% filter(name != "Not STEM") %>% filter(agy == "DOI"),
+              lty = "dashed", se = FALSE, size = 1, color = "#8a817c", name = "DOI") +
+  geom_point(data = usda_doi_filt %>% filter(name != "Not STEM") %>% filter(agy == "DOI"),
+             size = 1, color = "#8a817c", name = "DOI") +
+  facet_wrap(~name, scales = "free_y") + 
+    scale_color_manual(values = doi_colors,
+                     name = "") +
+  theme_minimal() +
+  theme(legend.position = "bottom", 
+        axis.text.x = element_text(angle = 90)) + 
+  guides(color = guide_legend(ncol=3)) + 
+  scale_x_continuous(breaks = seq(min(stem_jobs_wide$year),
+                                  max(stem_jobs_wide$year),
+                                  1)) + 
+  labs(x = "Year", y = "% of Workforce") + 
+  theme(text=element_text(size=11))
+doi_plot
+doi_plot <- plotly::ggplotly(doi_plot)
+
+plot_data <- stem_jobs_bureau %>% filter(name != "Not STEM") %>%
+  filter(agy %in% usda)
+usda_plot <- ggplot(plot_data, 
+                   aes(x = year, 
+                       y = percent_workforce, 
+                       color = agy)) +
+  geom_point(size = 1) +
+  geom_smooth(se = FALSE, size = 1) + 
+  geom_smooth(data = usda_doi_filt %>% filter(name != "Not STEM") %>% filter(agy == "USDA"),
+              lty = "dashed", se = FALSE, size = 1, color = "#bcb8b1") +
+  geom_point(data = usda_doi_filt %>% filter(name != "Not STEM") %>% filter(agy == "USDA"),
+             size = 1, color = "#bcb8b1") +
+  facet_wrap(~name, scales = "free_y") + 
+  scale_color_manual(values = usda_colors,
+                     name = "") +
+  theme_minimal() +
+  theme(legend.position = "bottom", 
+        axis.text.x = element_text(angle = 90)) + 
+  guides(color = guide_legend(ncol=3)) + 
+  scale_x_continuous(breaks = seq(min(stem_jobs_wide$year),
+                                  max(stem_jobs_wide$year),
+                                  1)) + 
+  labs(x = "Year", y = "% of Workforce") + 
+  theme(text=element_text(size=11))
+usda_plot
+usda_plot <- plotly::ggplotly(usda_plot)
+
+# plotting all others:
+plot_data <- stem_jobs_bureau %>% filter(name != "Not STEM") %>%
+  filter(!(agy %in% c(doi, usda))) 
+
+all_others <- ggplot(plot_data, 
+                   aes(x = year, 
+                       y = percent_workforce, 
+                       color = agy)) +
+  geom_point(size = 1) +
+  geom_smooth(se = FALSE, size = 1) + 
+  facet_wrap(~name, scales = "free_y") + 
+  scale_color_manual(values = c("#606c38", "#2a9d8f",
+                                 "#84a98c"),
+                     name = "") +
+  theme_minimal() +
+  theme(legend.position = "bottom", 
+        axis.text.x = element_text(angle = 90)) + 
+  guides(color = guide_legend(ncol=3)) + 
+  scale_x_continuous(breaks = seq(min(stem_jobs_wide$year),
+                                  max(stem_jobs_wide$year),
+                                  1)) + 
+  labs(x = "Year", y = "% of Workforce") + 
+  theme(text=element_text(size=11))
+all_others
+all_others <- plotly::ggplotly(all_others)
+
+# combining everything into a single plot: 
+subplot(all_others, doi_plot, usda_plot, nrows = 3, 
+        margin = 0.05)
+
+# plotting everything together - an alternative version 
+ggplot(stem_jobs_bureau %>% filter(name != "Not STEM"), 
+       aes(x = year, 
+           y = percent_workforce, 
+           color = agy)) +
+  geom_point(size = 2) +
+  geom_smooth(se = FALSE, size = 2) + 
+  geom_smooth(data = usda_doi_filt %>% filter(name != "Not STEM"),
+              lty = "dashed", se = FALSE, size = 2) +
+  geom_point(data = usda_doi_filt %>% filter(name != "Not STEM"), 
+             size = 2) +
+  facet_wrap(~name, scales = "free_y") + 
+  # theme_bw() +
+  # scale_color_viridis(discrete = TRUE, name = "") + 
+  # scale_color_manual(values = c("#606c38", "#2a9d8f", 
+  #                                "#84a98c"), 
+  #                    name = "") + 
+  # theme_bw() +
+  # scale_color_viridis(discrete = TRUE, name = "") + 
+  scale_color_manual(values = c("#606c38", "#2a9d8f", "#8a817c",
+                                "#fb8500", "#ffb703",
+                                "#d62828", "#b5838d", 
+                                "#e5989b", "#84a98c", 
+                                 "#bcb8b1","#9a8c98", "#4a4e69"), 
+                     name = "") + 
+  # scale_color_viridis(discrete = TRUE, name = "") + 
+  theme_minimal() +
+  theme(legend.position = "bottom", 
+        axis.text.x = element_text(angle = 90)) + 
+  guides(color = guide_legend(ncol=3)) + 
+  scale_x_continuous(breaks = seq(min(stem_jobs_wide$year),
+                                  max(stem_jobs_wide$year),
+                                  1)) + 
+  labs(x = "Year", y = "% of Workforce") + 
+  # ggtitle("Employment Trends at Environmental Bureaus") +
+  theme(text=element_text(size=15))
+
+
+# ratio of IT to non-IT staff: 
+# adding department-level trends: 
+dept_ratio <- usda_doi_filt %>%
+  select(-c(total_employees, percent_workforce)) %>%
+  pivot_wider(names_from = name, values_from = value) %>%
+  mutate(non_it = STEM + `Not STEM`, 
+        ratio_tech = Tech/non_it)
+#   geom_smooth(data = usda_doi_filt %>% filter(name != "Not STEM"),
+#               lty = "dashed", se = FALSE, size = 2) +
+#   geom_point(data = usda_doi_filt %>% filter(name != "Not STEM"), 
+#              size = 2) + 
+  
+ratio_tech <- ggplot(stem_jobs_wide, 
+                     aes(x  = year, y = ratio_tech, 
+                         color = agy_name)) + 
+  # geom_line() +   
+  geom_smooth(se = FALSE, size = 2) + 
+  geom_point(size = 2) + 
+  # scale_fill_viridis(discrete = TRUE, name = "") +
+  # scale_color_viridis(discrete = TRUE, name = "") +
+  theme_minimal() + 
+  geom_hline(yintercept = 0, lty = "dashed", color = "grey") + 
+  # facet_wrap(~agy_name, ncol = 2) +
+  geom_smooth(data = dept_ratio, aes(x = year, y = ratio_tech, color = agy),
+              lty = "dashed", se = FALSE, size = 2) +
+  geom_point(data = dept_ratio, aes(x = year, y = ratio_tech, color = agy),
+             size = 2) +
+  theme(legend.position = "bottom", 
+        axis.text.x = element_text(angle = 90)) + 
+  scale_color_manual(values = c("#606c38", "#2a9d8f", "#8a817c",
+                                "#fb8500", "#ffb703",
+                                "#d62828", "#b5838d", 
+                                "#e5989b", "#84a98c", 
+                                "#bcb8b1","#9a8c98", "#4a4e69"), 
+                     name = "") + 
+  scale_x_continuous(breaks = seq(min(stem_jobs_wide$year),
+                                  max(stem_jobs_wide$year), 1)) + 
+  labs(x = "Year", y = "IT staff / Non-IT staff") + 
+  ggtitle("Ratio of IT staff to Non-IT staff as a Proxy for Technical Debt at Environmental Bureaus") + 
+  # ggtitle("Employment Trends at Environmental Bureaus") +
+  theme(text=element_text(size=11))  + 
+    guides(color=guide_legend(ncol = 3)) 
+
+ratio_tech
+
+plotly::ggplotly(ratio_tech)
+```
+
+
+Tidying code for primary figures - for final draft of blog
+```{r}
+# reading in data: 
+enviro <- read.csv("./data/enviro_2013_2023.csv")
+
+# in stem: 2210, 1550, 0854, 1515
+tech_job <- c("1550", "2210", "1515", "0854")
+# computer scientists, IT technology management, operations research, 
+# computer engineering
+
+# in stem: "1530" "1529" "1560" "0150" "1370"
+data_analyst <- c("1560", "1370", "0150", "1530", "1529")
+# data scientists, cartographers, geographers, cartographic technician, 
+# geodetic technician, statistics, mathematical statistics 
+
+# Grabbing stem jobs: 
+enviro_tidy <- enviro %>%
+  mutate(job_type_broad = case_when(!(stemocc %in% c("XXXX", "****")) ~ "STEM_research", 
+                              TRUE ~ "NOT_STEM")) %>%
+  mutate(job_type_specific = case_when(stemocc %in% tech_job ~ "STEM_tech",
+                              stemocc %in% data_analyst ~ "STEM_analyst", 
+                              TRUE ~ job_type_broad)) %>%
+  mutate(job_type_broad = case_when(job_type_broad == "STEM_research" ~ "STEM", 
+                                    TRUE ~ job_type_broad))
+
+head(enviro_tidy)
+enviro_tidy_final <- enviro_tidy %>%
+  filter(name %in% bureaus) %>%
+  mutate(name = str_to_title(name)) %>%
+  mutate(name = gsub("U.s. ", "", name)) %>%
+  mutate(agy = case_when(agy == "DOA" ~ "USDA", 
+                         agy == "EPA" ~ "EPA", 
+                         agy == "USACE" ~ "Army", 
+                         agy == "DOC-NOAA" ~ "DOC", 
+                         TRUE ~ agy)) %>%
+  mutate(agy_name = paste0(agy,  "-", name)) %>%
+  mutate(agy_name = 
+           case_when(agy_name == "DOC-National Oceanic And Atmospheric Administration" ~ "DOC-NOAA", 
+                     agy_name == "Army-Army Corps Of Engineers" ~ "Army Corps of Engineers",
+                     TRUE ~ agy_name)) 
+
+all_emp <- enviro_tidy_final %>%
+  select(-X) %>%
+  group_by(agy, agy_name, year) %>%
+  summarize(total_employees = sum(employment))
+
+net_change <- all_emp %>%
+  filter(year %in% c(2013, 2023)) %>%
+  pivot_wider(names_from = year, values_from = total_employees) %>%
+  mutate(net_change = `2023` - `2013`)
+  
+# also wanting to add larger DOI & USDA trends: 
+just_usda_doi <- enviro_tidy %>%
+  mutate(name = str_to_title(name)) %>%
+  mutate(name = gsub("U.s. ", "", name)) %>%
+  mutate(agy = case_when(agy == "DOA" ~ "USDA", 
+                         agy == "EPA" ~ "EPA", 
+                         agy == "USACE" ~ "Army", 
+                         agy == "DOC-NOAA" ~ "DOC", 
+                         TRUE ~ agy)) %>%
+  mutate(agy_name = paste0(agy,  "-", name)) %>%
+  mutate(agy_name = 
+           case_when(agy_name == "DOC-National Oceanic And Atmospheric Administration" ~ "DOC-NOAA", 
+                     agy_name == "Army-Army Corps Of Engineers" ~ "Army Corps of Engineers",
+                     TRUE ~ agy_name)) 
+
+just_usda_doi <- just_usda_doi %>%
+  select(-X) %>%
+  group_by(agyt, year) %>%
+  summarize(total_employees = sum(employment)) %>%
+  filter(agyt %in% c("Ag-Department Of Agriculture", "In-Department Of The Interior")) %>%
+  mutate(agyt = case_when(
+    agyt == "Ag-Department Of Agriculture" ~ "USDA", 
+    TRUE ~ "DOI")) %>%
+  rename(agy_name = agyt) %>%
+  mutate(agy = agy_name)
+
+## plot one: total employment trends: 
+total_emp_plot <- ggplot(all_emp, aes(x = year, y = total_employees, 
+                                      color = agy_name)) + 
+  geom_point(size = 2) + 
+  facet_wrap(~agy, scales = "free") + 
+  geom_smooth(se = FALSE, size = 2) + 
+  # geom_smooth(data = just_usda_doi,  
+  #             se = FALSE, lty = "dashed") +
+  scale_color_manual(values = c("#606c38", "#2a9d8f",
+                                # "#8a817c",
+                                "#fb8500", "#ffb703",
+                                "#d62828", "#b5838d", 
+                                "#e5989b", "#84a98c", 
+                                # "#bcb8b1",
+                                "#9a8c98", "#4a4e69"), 
+                     name = "") + 
+  theme_minimal() +
+  theme(legend.position = "bottom", 
+        axis.text.x = element_text(angle = 90)) + 
+  guides(color = guide_legend(ncol=3)) + 
+  scale_x_continuous(breaks = seq(min(stem_jobs_wide$year),
+                                  max(stem_jobs_wide$year),
+                                  1)) + 
+  labs(x = "Year", y = "Total Employees") + 
+  theme(text=element_text(size=15))
+total_emp_plot
+plotly::ggplotly(total_emp_plot)
+
+
+## tech-specific data for faceted plot of all stem and non-stem trends: 
+bureaus <- c("FOREST SERVICE", "NATURAL RESOURCES CONSERVATION SERVICE", 
+             "U.S. FISH AND WILDLIFE SERVICE", "GEOLOGICAL SURVEY", 
+             "BUREAU OF RECLAMATION", "BUREAU OF LAND MANAGEMENT", 
+             "NATIONAL PARK SERVICE", "ENVIRONMENTAL PROTECTION AGENCY", 
+             "U.S. ARMY CORPS OF ENGINEERS", "NATIONAL OCEANIC AND ATMOSPHERIC ADMINISTRATION")
+bureaus <- str_to_title(bureaus)
+
+stem_breakdown_jobs_b <- enviro_tidy %>%
+  filter(name %in% bureaus) %>%
+  mutate(name = str_to_title(name)) %>%
+  group_by(agy, name, year, job_type_specific) %>%
+  summarize(job_specific_employment = sum(employment)) %>%
+  mutate(name = gsub("U.s. ", "", name)) %>%
+  mutate(agy = case_when(agy == "DOA" ~ "USDA", 
+                         agy == "EPA" ~ "EPA", 
+                         agy == "USACE" ~ "DoArmy", 
+                         agy == "DOC-NOAA" ~ "DOC", 
+                         TRUE ~ agy)) %>%
+  mutate(agy_name = paste0(agy,  "-", name)) %>%
+  mutate(agy_name = case_when(agy_name == "DOC-National Oceanic And Atmospheric Administration" ~ "DOC-NOAA", 
+                              TRUE ~ agy_name)) 
+
+stem_jobs_wide <- pivot_wider(stem_breakdown_jobs_b, 
+                              names_from = job_type_specific,
+                              values_from = job_specific_employment) %>%
+  mutate(non_tech = NOT_STEM + STEM_analyst + STEM_research, 
+         ratio_tech = STEM_tech/non_tech)
+
+stem_jobs_wide$ratio_tech <- round(stem_jobs_wide$ratio_tech, 4)
+
+stem_jobs_reorg <- stem_jobs_wide %>%
+  mutate(STEM = STEM_analyst + STEM_research, 
+         total_employees = NOT_STEM + STEM_tech + STEM) %>%
+  select(-c("STEM_analyst", "STEM_research", 
+            "non_tech", "ratio_tech")) %>%
+  rename(Tech = STEM_tech, 
+         `Not STEM` = NOT_STEM) %>%
+  pivot_longer(`Not STEM`:STEM, names_to = "job_group")  %>%
+  mutate(percent_workforce = round((value/total_employees)*100, 3))
+
+stem_jobs_bureau <- stem_jobs_reorg %>%
+  as.data.frame() %>%
+  select(-c("agy", "name")) %>% 
+  rename(agy = agy_name, 
+         name = job_group)
+
+stem_jobs_bureau <- stem_jobs_bureau[, names(usda_doi_filt)]
+
+all_trends <- rbind(usda_doi_filt, stem_jobs_bureau)
+
+# fixing DoArmy :
+stem_jobs_bureau <- stem_jobs_bureau %>%
+  mutate(agy = case_when(agy == "DoArmy-Army Corps Of Engineers" ~ "Army Corps of Engineers", 
+                         TRUE ~ agy))
+
+# grabbing useful vectors and colors for plotting: 
+doi <- c("DOI", "DOI-Bureau Of Land Management", "DOI-Bureau Of Reclamation", 
+         "DOI-Fish And Wildlife Service", "DOI-Geological Survey", "DOI-National Park Service")
+doi_colors <- c("#fb8500", "#ffb703",
+                "#d62828", "#b5838d", 
+                "#e5989b", "#8a817c")
+
+usda <- c("USDA", "USDA-Forest Service", "USDA-Natural Resources Conservation Service")
+usda_colors <- c("#9a8c98", "#4a4e69", "#bcb8b1")
+
+plot_data <- stem_jobs_bureau %>% filter(name != "Not STEM") %>% filter(agy %in% doi)
+  # filter(!(agy %in% c(doi, usda))) %>%
+  # filter(agy %in% usda)
+
+doi_plot <- ggplot(plot_data, 
+                   aes(x = year, 
+                       y = percent_workforce, 
+                       color = agy)) +
+  geom_point(size = 1) +
+  geom_smooth(se = FALSE, size = 1) + 
+  geom_smooth(data = usda_doi_filt %>% filter(name != "Not STEM") %>% filter(agy == "DOI"),
+              lty = "dashed", se = FALSE, size = 1, color = "#8a817c", name = "DOI") +
+  geom_point(data = usda_doi_filt %>% filter(name != "Not STEM") %>% filter(agy == "DOI"),
+             size = 1, color = "#8a817c", name = "DOI") +
+  facet_wrap(~name, scales = "free_y") + 
+    scale_color_manual(values = doi_colors,
+                     name = "") +
+  theme_minimal() +
+  theme(legend.position = "bottom", 
+        axis.text.x = element_text(angle = 90)) + 
+  guides(color = guide_legend(ncol=3)) + 
+  scale_x_continuous(breaks = seq(min(stem_jobs_wide$year),
+                                  max(stem_jobs_wide$year),
+                                  1)) + 
+  labs(x = "Year", y = "% of Workforce") + 
+  theme(text=element_text(size=11))
+doi_plot
+doi_plot <- plotly::ggplotly(doi_plot)
+
+plot_data <- stem_jobs_bureau %>% filter(name != "Not STEM") %>%
+  filter(agy %in% usda)
+usda_plot <- ggplot(plot_data, 
+                   aes(x = year, 
+                       y = percent_workforce, 
+                       color = agy)) +
+  geom_point(size = 1) +
+  geom_smooth(se = FALSE, size = 1) + 
+  geom_smooth(data = usda_doi_filt %>% filter(name != "Not STEM") %>% filter(agy == "USDA"),
+              lty = "dashed", se = FALSE, size = 1, color = "#bcb8b1") +
+  geom_point(data = usda_doi_filt %>% filter(name != "Not STEM") %>% filter(agy == "USDA"),
+             size = 1, color = "#bcb8b1") +
+  facet_wrap(~name, scales = "free_y") + 
+  scale_color_manual(values = usda_colors,
+                     name = "") +
+  theme_minimal() +
+  theme(legend.position = "bottom", 
+        axis.text.x = element_text(angle = 90)) + 
+  guides(color = guide_legend(ncol=3)) + 
+  scale_x_continuous(breaks = seq(min(stem_jobs_wide$year),
+                                  max(stem_jobs_wide$year),
+                                  1)) + 
+  labs(x = "Year", y = "% of Workforce") + 
+  theme(text=element_text(size=11))
+usda_plot
+usda_plot <- plotly::ggplotly(usda_plot)
+
+# plotting all others:
+plot_data <- stem_jobs_bureau %>% filter(name != "Not STEM") %>%
+  filter(!(agy %in% c(doi, usda))) 
+
+all_others <- ggplot(plot_data, 
+                   aes(x = year, 
+                       y = percent_workforce, 
+                       color = agy)) +
+  geom_point(size = 1) +
+  geom_smooth(se = FALSE, size = 1) + 
+  facet_wrap(~name, scales = "free_y") + 
+  scale_color_manual(values = c("#606c38", "#2a9d8f",
+                                 "#84a98c"),
+                     name = "") +
+  theme_minimal() +
+  theme(legend.position = "bottom", 
+        axis.text.x = element_text(angle = 90)) + 
+  guides(color = guide_legend(ncol=3)) + 
+  scale_x_continuous(breaks = seq(min(stem_jobs_wide$year),
+                                  max(stem_jobs_wide$year),
+                                  1)) + 
+  labs(x = "Year", y = "% of Workforce") + 
+  theme(text=element_text(size=11))
+all_others
+all_others <- plotly::ggplotly(all_others)
+
+# combining everything into a single plot: 
+subplot(all_others, doi_plot, usda_plot, nrows = 3, 
+        margin = 0.05)
+
+
+## ratio of IT to non-IT staff: 
+# adding department-level trends: 
+dept_ratio <- usda_doi_filt %>%
+  select(-c(total_employees, percent_workforce)) %>%
+  pivot_wider(names_from = name, values_from = value) %>%
+  mutate(non_it = STEM + `Not STEM`, 
+        ratio_tech = Tech/non_it)
+
+## ratio of IT to non-IT staff: 
+ratio_tech <- ggplot(stem_jobs_wide, 
+                     aes(x  = year, y = ratio_tech, 
+                         color = agy_name)) + 
+  # geom_line() +   
+  geom_smooth(se = FALSE, size = 2) + 
+  geom_point(size = 2) + 
+  theme_minimal() + 
+  geom_hline(yintercept = 0, lty = "dashed", color = "grey") + 
+  geom_smooth(data = dept_ratio, aes(x = year, y = ratio_tech, color = agy),
+              lty = "dashed", se = FALSE, size = 2) +
+  geom_point(data = dept_ratio, aes(x = year, y = ratio_tech, color = agy),
+             size = 2) +
+  theme(legend.position = "bottom", 
+        axis.text.x = element_text(angle = 90)) + 
+  scale_color_manual(values = c("#606c38", "#2a9d8f", "#8a817c",
+                                "#fb8500", "#ffb703",
+                                "#d62828", "#b5838d", 
+                                "#e5989b", "#84a98c", 
+                                "#bcb8b1","#9a8c98", "#4a4e69"), 
+                     name = "") + 
+  scale_x_continuous(breaks = seq(min(stem_jobs_wide$year),
+                                  max(stem_jobs_wide$year), 1)) + 
+  labs(x = "Year", y = "IT staff / Non-IT staff") + 
+  ggtitle("Ratio of IT staff to Non-IT staff as a Proxy for Technical Debt at Environmental Bureaus") + 
+  theme(text=element_text(size=11))  + 
+    guides(color=guide_legend(ncol = 3)) 
+
+ratio_tech
+
+plotly::ggplotly(ratio_tech)
+
+```
+
+## Exploring trends at other departments & agencies: 
+
+Libraries & helper functions: 
+```{r}
+library(tidyverse)
+library(janitor)
+library(rvest)
+library(rebus)
+library(viridis)
+
+source("./code/assemble_cube.R")
+source("./code/download_cubes.R")
+```
+
+Grabbing & assembling data cubes from March 2018 - March 2023 
+```{r}
+# note the folder you'd like to store and pull cubes from: 
+cube_folder <- "./data/test/"
+download_cubes(url = "https://www.opm.gov/data/datasets/Index.aspx?tag=FedScope", 
+               dest_folder = cube_folder, up_to_year = 2013, 
+               month = "March")
+
+# looking at 10-year trends: 
+folder_list <- list.files(cube_folder)
+cube_data_test <- assemble_cube(parent_folder = cube_folder, 
+                                folder_list = folder_list)
+cube_data_10_copy <- cube_data_test
+cube_data_10_copy <- cube_data_10_copy %>%
+  slice(-1)
+# 20 million rows! 
+
+# looking at 5-year trends 
+cube_folder <- "./data/original_manual/"
+cube_data_5yr <- assemble_cube(parent_folder = cube_folder, 
+                                folder_list = folder_list)
+cube_data_5_copy <- cube_data_5yr
+cube_data_5_copy <- cube_data_5_copy %>%
+  slice(-1)
+# wooooow 12 million rows 
+
+# toggling temporal scale: 
+cube_data <- cube_data_10_copy
+```
+
+Investigating trends across all agencies
+```{r}
+# I'm just curious across all agencies: 
+data_sci <- cube_data %>%
+  filter(occ == 1560) %>%
+  mutate(employment = as.numeric(employment)) %>%
+  group_by(agyt, year) %>%
+  summarize(total_emp = sum(employment))
+
+data_sci <- data_sci[order(data_sci$total_emp, decreasing = T),]
+
+ggplot(data_sci, aes(x = reorder(agyt, -total_emp, min), y = total_emp)) + 
+  geom_bar(aes(fill = agyt), stat = "identity") + 
+  theme_bw() + 
+  coord_flip() + 
+  theme(legend.position = "none") + 
+  labs(y = "Total Employees (2022 - 2023)", x = "Agency") + 
+  ggtitle("Federal Data Scientists")
+# wowza
+```
+
+Filtering tidying trends for environmental agencies: 
+```{r}
+# environmental agencies: 
+# DOA (AG), DOC-NOAA (CM-CM54), DOI (IN), EPA (EP)
+enviro_agy_codes <- c("AG", "IN", "EP")
+enviro <- cube_data %>%
+  filter(agy %in% enviro_agy_codes) 
+# grabbing NOAA: 
+noaa <- cube_data %>%
+  filter(agysub == "CM54")
+usace <- cube_data %>%
+  filter(agysub == "ARCE")
+# adding to other environmental agencies: 
+enviro <- rbind(enviro, noaa, usace) %>%
+  mutate(employment = as.numeric(employment)) %>%
+  mutate(salary = as.numeric(salary)) %>%
+  mutate(year = as.numeric(year))
+enviro$agy <- as.factor(enviro$agy)
+levels(enviro$agy) <- c("DOA", "USACE", "DOC-NOAA", "EPA", "DOI")
+
+# tidying string names across the dataframe:   
+enviro <- enviro %>%
+  separate(agysubt, c("abbr", "name"), "-") %>%
+  mutate(name = gsub("U.s. ", "", name), 
+         occt = str_to_title(occt), 
+         los = as.numeric(los), 
+         agyt = str_to_title(agyt), 
+         agysubt = str_to_title(agysubt)) 
+# writing 
+# write.csv(enviro, "./data/enviro_2013_2023.csv")
+```
+
+Looking at trends in tech
+```{r}
+# reading in environmental agency data: 
+enviro <- read.csv("./data/enviro_2013_2023.csv")
+
+# taking a closer look at exclusively just tech jobs from 
+# tech talent project: 
+# https://static1.squarespace.com/static/6383bcf53e5d274588048b39/t/63c5ae7dbd56160d1599acc8/1673899645774/TTP+cheet+sheet.pdf
+tech_job_ttp <- c("1560", "1550", "2210", "2200", 
+                  "1515", "0854")
+
+# stats for each agency: 
+summary_stats <- enviro %>%
+  group_by(agy, name, year, loslvlt, ppgrd) %>%
+  summarize(total_employees = sum(employment), 
+            mean_total_salary = mean(salary))
+# stats for tech: 
+tech_stats <- enviro %>%
+    filter(occ %in% tech_job_ttp) %>%
+  group_by(agy, name, year, loslvlt, ppgrd) %>%
+  summarize(total_tech_employees = sum(employment), 
+            mean_tech_salary = mean(salary))
+# combining: 
+agy_stats <- merge(summary_stats, tech_stats, by = c("agy", "name", "year", 
+                                                     "loslvlt", "ppgrd"))
+
+# looking at ALL environmental agencies - potentially a first tab?
+enviro_tech_ttp <- enviro %>%
+  filter(occ %in% tech_job_ttp) %>%
+  group_by(occt, agy, year) %>%
+  summarize(total_employees = sum(employment))
+
+ggplot(enviro_tech_ttp, aes(x = year, y = total_employees, 
+                        color = agy)) + 
+  geom_smooth(se = FALSE) +
+  geom_point(size = 3) +   
+  scale_color_viridis(discrete = TRUE, name = "") +
+  # scale_color_manual(values = colors) + 
+  facet_wrap(~occt, scales = "free_y") +
+  theme_bw() + 
+  theme(legend.position = "bottom", 
+        axis.text.x = element_text(angle = 90)) + 
+  labs(x = "Year", y = "Employees") + 
+  scale_x_continuous(breaks = seq(min(enviro_tech_ttp$year),
+                                  max(enviro_tech_ttp$year), 1)) + 
+  ggtitle("Tech Trends at Environmental Agencies")
+
+
+# per workforce at environmental agencies: 
+total_workforce <- enviro %>%
+  group_by(agy, year) %>%
+  summarize(total_workforce = sum(employment))
+
+total_tech <- enviro %>%
+  filter(occ %in% tech_job_ttp) %>%
+  group_by(agy, year) %>%
+  summarize(total_tech = sum(employment))
+
+percent_workforce <- merge(total_workforce, total_tech, 
+                           by = c("agy", "year"), all.x = TRUE)
+
+percent_workforce$per_tech <- (percent_workforce$total_tech / percent_workforce$total_workforce) * 100
+
+percent_workforce <- percent_workforce %>%
+  mutate(year = as.numeric(year))
+
+ggplot(percent_workforce, aes(x = year, y = per_tech, 
+                              fill = agy, 
+                              color = agy)) + 
+  geom_area(position = "identity", alpha = 0.5) + 
+  theme_bw() + 
+  geom_point(size = 4) +  
+  scale_x_continuous(breaks = seq(min(enviro_tech_ttp$year),
+                                  max(enviro_tech_ttp$year), 1)) +
+  scale_color_viridis(discrete = TRUE, 
+                      name = "") +
+  scale_fill_viridis(discrete = TRUE, 
+                     name = "") +
+  labs(x = "Year", y = "% Workforce in Tech") + 
+  ggtitle("% Workforce in Tech at Environmental Agencies")
+
+
+#### Other tab #####
+# tab 2 figures: 
+agy <- "DOA"
+agy_sub <- "Forest Service"
+
+plot_one <- enviro %>%
+  filter(agy == agy) %>%
+  filter(name == agy_sub) %>%
+  filter(occ %in% tech_job_ttp) %>%
+  group_by(occt, year) %>%
+  summarize(total_tech = sum(employment))
+
+ggplot(plot_one, aes(x = year, y = total_tech, 
+                     color = occt)) + 
+  geom_smooth(se = FALSE) +
+  geom_point(size = 3) + 
+  scale_color_viridis(discrete = TRUE) +
+  facet_wrap(~occt, scales = "free_y") +
+  theme_bw() + 
+  scale_x_continuous(breaks = seq(min(plot_one$year),
+                                  max(plot_one$year), 1)) + 
+  theme(legend.position = "none", 
+        axis.text.x = element_text(angle = 90)) + 
+  labs(x = "Year", y = "Total Employees in Tech") + 
+  ggtitle(paste0("Tech Job Trends for ", agy, "-", agy_sub))
+
+# plot two: 
+plot_two <- enviro %>%
+  filter(agy == agy) %>%
+  filter(name == agy_sub) %>%
+  filter(occ %in% tech_job_ttp) %>%
+  group_by(occt, year, ppgrd) %>%
+  summarize(grade_scale = sum(employment))
+
+ggplot(plot_two, aes(x = year, y = grade_scale, 
+                     color = ppgrd)) + 
+  geom_smooth(se = FALSE) +
+  geom_point(size = 3) + 
+  scale_color_viridis(discrete = TRUE, name = "") +
+  facet_wrap(~occt, scales = "free_y") +
+  theme_bw() + 
+  scale_x_continuous(breaks = seq(min(plot_two$year),
+                                  max(plot_two$year), 1)) + 
+  theme(axis.text.x = element_text(angle = 90), 
+        legend.position = "bottom") + 
+  labs(x = "Year", y = "GS Employees") + 
+  ggtitle(paste0("Tech Jobs & Grade Series for ", agy, "-", agy_sub))
+
+# plot three: 
+plot_three <- enviro %>%
+  filter(agy == agy) %>%
+  filter(name == agy_sub) %>%
+  filter(occ %in% tech_job_ttp) %>%
+  mutate(los = as.numeric(los)) %>%
+  group_by(occt, year) %>%
+  summarize(mean_los = mean(los))
+
+ggplot(plot_three, aes(x = year, y = mean_los, 
+                     color = occt)) + 
+  geom_smooth(se = FALSE) +
+  geom_point(size = 3) + 
+  scale_color_viridis(discrete = TRUE, name = "") +
+  facet_wrap(~occt, scales = "free_y") +
+  theme_bw() + 
+  scale_x_continuous(breaks = seq(min(plot_three$year),
+                                  max(plot_three$year), 1)) + 
+  theme(axis.text.x = element_text(angle = 90), 
+        legend.position = "bottom") + 
+  labs(x = "Year", y = "Mean Length of Service") + 
+  ggtitle(paste0("Tech Jobs & Mean Length of Service for ", 
+                 agy, "-", agy_sub))
+
+
+```
+
+Taking a closer look at tech jobs from tech talent project: 
+```{r}
+# colors <- c("#033f63", "#28666e", "#7c9885", "#b5b682")
+# taking a closer peek at each department: 
+enviro_tech_ttp_dept <- enviro %>%
+  filter(occ %in% tech_job_ttp) %>%
+  group_by(occt, agy, agysubt, year) %>%
+  summarize(total_employees = sum(employment))
+
+ggplot(enviro_tech_ttp_dept  %>% filter(agy == "EPA"), 
+       aes(x = year, y = total_employees, 
+                        color = agysubt)) + 
+  scale_color_viridis(discrete = TRUE) +
+  geom_smooth(se = FALSE) +
+  geom_point(size = 2) + 
+  facet_wrap(~occt, scales = "free_y") +
+  # scale_color_manual(values = colors) + 
+  theme_bw() + 
+  theme(legend.position = "bottom", 
+        axis.text.x = element_text(angle = 90)) + 
+  guides(color = guide_legend(ncol = 3)) + 
+  labs(x = "Year", y = "Employees") + 
+  scale_x_continuous(breaks = seq(min(enviro_tech_ttp$year),
+                                  max(enviro_tech_ttp$year), 1)) +
+  labs(x = "Year", y = "Employees") + 
+  ggtitle("EPA")
+
+
+# ggplot(enviro_tech_ttp_dept %>% filter(agy == "DOI"), 
+#        aes(x = year, y = total_employees, 
+#                         color = occt)) + 
+#     scale_color_manual(values = colors) + 
+# 
+#   geom_point(size = 3) + 
+#   facet_wrap(~agysubt, scales = "free_y") +
+#   theme_bw() 
+
+```
+
+What about looking at % of total workforce? 
+```{r}
+
+
+# oooo how does this compare to non-enviro? 
+cube_copy <- cube_data 
+total_workforce <- cube_copy %>%
+  group_by(agyt, year) %>%
+  mutate(employment = as.numeric(employment)) %>%
+  summarize(total_workforce = sum(employment))
+
+total_tech <- cube_copy %>%
+  filter(occ %in% tech_job_ttp) %>%
+  group_by(agyt, year) %>%
+  mutate(employment = as.numeric(employment)) %>%
+  summarize(total_tech = sum(employment))
+
+percent_workforce <- merge(total_workforce, total_tech, 
+                           by = c("agyt", "year"), all.x = TRUE)
+
+percent_workforce$per_tech <- (percent_workforce$total_tech / percent_workforce$total_workforce) * 100
+
+percent_workforce <- percent_workforce %>%
+  mutate(year = as.numeric(year))
+
+# ggplot(percent_workforce, aes(x = year, y = per_tech, fill = agyt)) + 
+#   geom_area(stat = "identity", 
+#             position = "identity", alpha = 0.5) + 
+#   theme_bw() 
+
+
+# grabbing a chart for totals: 
+mean_tech <- percent_workforce %>%
+  group_by(agyt) %>%
+  summarize(mean_tech = mean(per_tech))
+mean_tech <- mean_tech[order(mean_tech$mean_tech, decreasing = T),]
+ggplot(mean_tech[c(1:20, 22, 21, 61, 67, 75),], 
+       aes(x = reorder(agyt, -mean_tech, min), 
+                             y = mean_tech, fill = agyt)) + 
+  geom_bar(stat = "identity", 
+            position = "identity", alpha = 0.5) + 
+  theme_bw() + 
+  coord_flip() +
+  theme(legend.position = "none") + 
+  labs(y = "% Workforce Related to Tech", x = "")
+```
+
+Filtering and investigating forest service trends: 
+```{r}
+# filtering for usfs
+usfs <- cube_data %>%
+  filter(agysub == "AG11") %>%
+  mutate(year = as.numeric(year), 
+         employment = as.numeric(employment))
+```
+
+What are the most common jobs at USFS?
+```{r}
+## What the most common jobs at usfs? ##
+# grabbing total employees by occupation
+usfs_summary <- usfs %>%
+  group_by(year, occt) %>%
+  summarize(total_employees = sum(employment))
+
+usfs_summary <- usfs_summary[order(usfs_summary$total_employees, 
+                                   decreasing = TRUE),]
+
+# filtering data by top occupations: 
+occ_tops <- unique(usfs_summary[1:100,]$occt)
+usfs_summary_mini <- usfs_summary %>%
+  filter(occt %in% occ_tops)
+ggplot(usfs_summary_mini, aes(x = year, y = total_employees, 
+                              color = occt, 
+                         fill = occt)) + 
+  scale_x_continuous(breaks = seq(min(enviro_tech_ttp$year),
+                                  max(enviro_tech_ttp$year), 1)) +
+  geom_smooth(se = FALSE) + 
+  # geom_area(stat = "identity", position = "identity", 
+  #           alpha = 0.5) + 
+  facet_wrap(~occt, scales = "free_y") + 
+  scale_fill_viridis(discrete = TRUE) +
+  guides(fill = guide_legend(ncol = 2)) + 
+  scale_color_viridis(discrete = TRUE) + 
+  theme_bw() + 
+  theme(legend.position = "bottom", 
+        axis.text.x = element_text(angle = 90)) + 
+  ggtitle("USFS") + 
+  labs(x = "Year", y = "Total Employees")
+
+```
+
+What do USFS trends look like for jobs in tech?
+```{r}
+tech_job_ttp <- c("1560", "1550", "2210", "2200", 
+                  "1515", "0854")
+
+usfs_tech_ttp <- usfs %>%
+  filter(occ %in% tech_job_ttp) %>%
+  group_by(occt, year) %>%
+  summarize(total_employees = sum(employment))
+
+ggplot(usfs_tech_ttp, aes(x = year, y = total_employees, 
+                        color = occt)) + 
+  geom_smooth(se = FALSE) +
+  geom_point(size = 3) + 
+  scale_color_manual(values = colors) + 
+  facet_wrap(~occt, scales = "free_y") +
+  theme_bw() + 
+  theme(legend.position = "bottom", 
+        axis.text.x = element_text(angle = 90)) + 
+  labs(x = "Year", y = "Employees") + 
+  scale_x_continuous(breaks = seq(min(usfs_tech_ttp$year),
+                                  max(usfs_tech_ttp$year), 1))
+```
+
+Grabbing some stats: 
+```{r}
+head(enviro)
+# total employees across all enviro agencies: 
+x <- enviro %>%
+  group_by(agy, year) %>%
+  summarize(total_emp = sum(employment))
+# total employees in tech: 
+y <- enviro %>%
+  filter(occ %in% tech_job_ttp) %>%
+  group_by(agy, year) %>%
+  summarize(total_tech = sum(employment))
+
+emp_trends <- merge(x, y, by = c("agy", "year"))
+emp_trends <- emp_trends %>%
+  mutate(per_in_tech = (total_tech / total_emp)*100)
+
+ggplot(emp_trends, aes(x = year, y = total_emp, 
+                       color = agy)) + 
+  geom_smooth(se = FALSE) + 
+  geom_point() + 
+  scale_color_viridis(discrete = TRUE) +
+  facet_wrap(~agy, scales = "free_y") + 
+  theme_bw() + 
+  theme(legend.position = "bottom", 
+        axis.text.x = element_text(angle = 90)) + 
+  scale_x_continuous(breaks = seq(min(emp_trends$year),
+                                  max(emp_trends$year), 1)) + 
+  labs(y = "Total Employees", x = "Year") + 
+  ggtitle("All Employees")
+
+# just technology 
+ggplot(emp_trends, aes(x = year, y = total_tech, 
+                       color = agy)) + 
+  geom_smooth(se = FALSE) + 
+  geom_point() + 
+  scale_color_viridis(discrete = TRUE) +
+  facet_wrap(~agy, scales = "free_y") + 
+  theme_bw() + 
+  theme(legend.position = "bottom", 
+        axis.text.x = element_text(angle = 90)) + 
+  scale_x_continuous(breaks = seq(min(emp_trends$year),
+                                  max(emp_trends$year), 1)) + 
+  labs(y = "Total Tech Employees", x = "Year") + 
+  ggtitle("All Tech Employees")
+
+# per in workforce: 
+ggplot(emp_trends, aes(x = year, y = per_in_tech, 
+                       color = agy, 
+                       fill = agy)) + 
+  geom_smooth(se = FALSE) + 
+  geom_area(position = "identity", alpha = 0.5) + 
+    geom_point(size = 3) + 
+  scale_color_viridis(discrete = TRUE) +
+  scale_fill_viridis(discrete = TRUE) +
+  # facet_wrap(~agy, scales = "free_y") + 
+  theme_bw() + 
+  theme(legend.position = "bottom", 
+        axis.text.x = element_text(angle = 90)) + 
+  scale_x_continuous(breaks = seq(min(emp_trends$year),
+                                  max(emp_trends$year), 1)) + 
+  labs(y = "% Tech Employees", x = "Year") + 
+  ggtitle("% Workforce in Tech")
+
+# Looking at specific job series: 
+tech_job_series <- enviro %>%
+  filter(occ %in% tech_job_ttp) %>%
+  group_by(agy, occt, year) %>%
+  summarize(total_emp = sum(employment))
+
+ggplot(tech_job_series, aes(x = year, y = total_emp, 
+                       color = agy)) + 
+  geom_smooth(se = FALSE) + 
+  geom_point() + 
+  scale_color_viridis(discrete = TRUE) +
+  facet_wrap(~occt, scales = "free_y") + 
+  theme_bw() + 
+  theme(legend.position = "bottom", 
+        axis.text.x = element_text(angle = 90)) + 
+  scale_x_continuous(breaks = seq(min(tech_job_series$year),
+                                  max(tech_job_series$year), 1)) + 
+  labs(y = "Total Tech Employees", x = "Year") + 
+  ggtitle("Employees by Tech Job")
+
+```
+
+Just USFS trends: 
+```{r}
+head(enviro)
+enviro_usfs <- enviro %>%
+  filter(agy == "DOA") %>%
+  filter(agysubt == "Ag11-Forest Service")
+
+# total employees across all enviro agencies: 
+x <- enviro_usfs %>%
+  group_by(agy, year) %>%
+  summarize(total_emp = sum(employment))
+# total employees in tech: 
+y <- enviro_usfs %>%
+  filter(occ %in% tech_job_ttp) %>%
+  group_by(agy, year) %>%
+  summarize(total_tech = sum(employment))
+
+emp_trends <- merge(x, y, by = c("agy", "year"))
+emp_trends <- emp_trends %>%
+  mutate(per_in_tech = (total_tech / total_emp)*100)
+
+ggplot(emp_trends, aes(x = year, y = total_emp, 
+                       color = agy)) + 
+  geom_smooth(se = FALSE) + 
+  geom_point() + 
+  scale_color_viridis(discrete = TRUE) +
+  facet_wrap(~agy, scales = "free_y") + 
+  theme_bw() + 
+  theme(legend.position = "bottom", 
+        axis.text.x = element_text(angle = 90)) + 
+  scale_x_continuous(breaks = seq(min(emp_trends$year),
+                                  max(emp_trends$year), 1)) + 
+  labs(y = "Total Employees", x = "Year") + 
+  ggtitle("All USFS Employees")
+
+# just technology 
+ggplot(emp_trends, aes(x = year, y = total_tech, 
+                       color = agy)) + 
+  geom_smooth(se = FALSE) + 
+  geom_point() + 
+  scale_color_viridis(discrete = TRUE) +
+  facet_wrap(~agy, scales = "free_y") + 
+  theme_bw() + 
+  theme(legend.position = "bottom", 
+        axis.text.x = element_text(angle = 90)) + 
+  scale_x_continuous(breaks = seq(min(emp_trends$year),
+                                  max(emp_trends$year), 1)) + 
+  labs(y = "Total Tech Employees", x = "Year") + 
+  ggtitle("All Tech Employees")
+
+# per in workforce: 
+ggplot(emp_trends, aes(x = year, y = per_in_tech, 
+                       color = agy, 
+                       fill = agy)) + 
+  geom_smooth(se = FALSE) + 
+  geom_area(position = "identity", alpha = 0.5) + 
+    geom_point(size = 3) + 
+  scale_color_viridis(discrete = TRUE) +
+  scale_fill_viridis(discrete = TRUE) +
+  # facet_wrap(~agy, scales = "free_y") + 
+  theme_bw() + 
+  theme(legend.position = "bottom", 
+        axis.text.x = element_text(angle = 90)) + 
+  scale_x_continuous(breaks = seq(min(emp_trends$year),
+                                  max(emp_trends$year), 1)) + 
+  labs(y = "% Tech Employees", x = "Year") + 
+  ggtitle("% Workforce in Tech")
+
+# Looking at specific job series: 
+tech_job_series <- enviro_usfs %>%
+  filter(occ %in% tech_job_ttp) %>%
+  group_by(agy, occt, year) %>%
+  summarize(total_emp = sum(employment))
+
+ggplot(tech_job_series, aes(x = year, y = total_emp, 
+                       color = agy)) + 
+  geom_smooth(se = FALSE) + 
+  geom_point() + 
+  scale_color_viridis(discrete = TRUE) +
+  facet_wrap(~occt, scales = "free_y") + 
+  theme_bw() + 
+  theme(legend.position = "bottom", 
+        axis.text.x = element_text(angle = 90)) + 
+  scale_x_continuous(breaks = seq(min(tech_job_series$year),
+                                  max(tech_job_series$year), 1)) + 
+  labs(y = "Total Tech Employees", x = "Year") + 
+  ggtitle("Employees by Tech Job")
+
+```
+
+
+```{r}
+test <- enviro %>%
+  filter(occ >= 2200) %>%
+  filter(occ <= 2300)
+
+
+test <- cube_data_10_copy %>%
+  filter(occ %in% c(1101, 0301, 0150))
+
+View(enviro)
+test <- enviro %>%
+  group_by(occfamt, occt) %>%
+  summarize(emp = sum(employment))
+
+# stem 
+# biologists 
+# ratio of science to tech job series 
+```
+
+Investigating STEM trends: 
+```{r}
+stem_occ <- enviro %>%
+  filter(stemocc != "XXXX")
+
+stem_occ_summary <- stem_occ %>%
+  group_by(agy, year) %>%
+  summarize(total_stem = sum(employment))
+
+# total employees across all enviro agencies: 
+x <- enviro %>%
+  group_by(agy, year) %>%
+  summarize(total_emp = sum(employment))
+# total employees in tech: 
+y <- enviro %>%
+  filter(occ %in% tech_job_ttp) %>%
+  group_by(agy, year) %>%
+  summarize(total_tech = sum(employment))
+
+emp_trends <- merge(x, y, by = c("agy", "year"))
+emp_trends <- emp_trends %>%
+  mutate(per_in_tech = (total_tech / total_emp)*100)
+
+emp_trends <- merge(emp_trends, stem_occ_summary, by = c("agy", "year"))
+emp_trends <- emp_trends %>%
+  mutate(per_in_stem = (total_stem / total_emp)*100)
+
+
+
+
+ggplot(stem_occ_summary, aes(x = year, y = total_emp, 
+                       color = agy)) + 
+  geom_smooth(se = FALSE) + 
+  geom_point() + 
+  scale_color_viridis(discrete = TRUE) +
+  facet_wrap(~agy, scales = "free_y") + 
+  theme_bw() + 
+  theme(legend.position = "bottom", 
+        axis.text.x = element_text(angle = 90)) + 
+  scale_x_continuous(breaks = seq(min(emp_trends$year),
+                                  max(emp_trends$year), 1)) + 
+  labs(y = "Total Employees", x = "Year") + 
+  ggtitle("All STEM Employees")
+
+```
+
+Creating employment trends at agency and sub agency levels: 
+```{r}
+tech_job_ttp <- c("1550", "2210", "2200", "1515", "0854")
+# 2210 - information technology management - maybe check out supervis level for 
+# distinction between "supervisory IT specialist"
+
+data_analyst <- c("1560", "1370", "0150", "1371", "1374", "1530", "1529")
+# ^ includes data scientists, 
+# GIS jobs: 
+# 1370 (cartography), 0150 (geographer), 1371 (cartographic technician), 
+# 1374 (geodetic technician)
+# 1530 - statistics job series 
+# 1529 - mathematical statistics series 
+# also get binned into: 0301 (misc admin & program), 1101 (general buisness & industry), 
+# 0089 (emergency management specialist), 
+
+# total employees across all enviro agencies: 
+all_emp <- enviro %>%
+  group_by(agy, year) %>%
+  summarize(total_emp = sum(employment))
+# total employees in tech: 
+tech_emp <- enviro %>%
+  filter(occ %in% tech_job_ttp) %>%
+  group_by(agy, year) %>%
+  summarize(total_tech = sum(employment))
+# total employees in stem: 
+stem_occ <- enviro %>%
+  filter(stemocc != "XXXX") %>%
+  group_by(agy, year) %>%
+  summarize(total_stem = sum(employment))
+# total employees in data analyst jobs: 
+analyst_emp <- enviro %>%
+  filter(occ %in% data_analyst) %>%
+  group_by(agy, year) %>%
+  summarize(total_analyst = sum(employment))
+
+# merging data frames above: 
+emp_trends <- merge(all_emp, tech_emp, by = c("agy", "year"))
+emp_trends <- emp_trends %>%
+  mutate(per_in_tech = (total_tech / total_emp)*100)
+
+emp_trends <- merge(emp_trends, stem_occ, by = c("agy", "year"))
+emp_trends <- emp_trends %>%
+  mutate(per_in_stem = (total_stem / total_emp)*100)
+
+emp_trends <- merge(emp_trends, analyst_emp, by = c("agy", "year"))
+emp_trends <- emp_trends %>%
+  mutate(per_in_analyst = (total_analyst / total_emp)*100)
+
+# write.csv(emp_trends, "./data/dept_employment_trends.csv")
+
+# grabbing trends at anysubt level: 
+# total employees across all enviro agencies: 
+all_emp_agysubt <- enviro %>%
+  group_by(agy, agysubt, year) %>%
+  summarize(total_emp = sum(employment))
+# total employees in tech: 
+tech_emp_agysubt <- enviro %>%
+  filter(occ %in% tech_job_ttp) %>%
+  group_by(agy, agysubt, year) %>%
+  summarize(total_tech = sum(employment))
+# total employees in stem: 
+stem_occ_agysubt <- enviro %>%
+  filter(stemocc != "XXXX") %>%
+  group_by(agy, agysubt, year) %>%
+  summarize(total_stem = sum(employment))
+# total employees in data analyst jobs: 
+analyst_emp_agysubt <- enviro %>%
+  filter(occ %in% data_analyst) %>%
+  group_by(agy, agysubt, year) %>%
+  summarize(total_analyst = sum(employment))
+
+# merging data frames above: 
+emp_trends_agysubt <- merge(all_emp_agysubt, tech_emp_agysubt, by = c("agy", "year", 
+                                                              "agysubt"))
+emp_trends_agysubt <- emp_trends_agysubt %>%
+  mutate(per_in_tech = (total_tech / total_emp)*100)
+
+emp_trends_agysubt <- merge(emp_trends_agysubt, stem_occ_agysubt, by = c("agy", "year", 
+                                                         "agysubt"))
+emp_trends_agysubt <- emp_trends_agysubt %>%
+  mutate(per_in_stem = (total_stem / total_emp)*100)
+
+emp_trends_agysubt <- merge(emp_trends_agysubt, analyst_emp_agysubt, by = c("agy", "year",  
+                                                         "agysubt"))
+emp_trends_agysubt <- emp_trends_agysubt %>%
+  mutate(per_in_analyst = (total_analyst / total_emp)*100)
+
+# write.csv(emp_trends_agysubt, "./data/agysubt_employment_trends.csv")
+```
+
+Investigating trends at specific bureaus: 
+```{r}
+bureaus <- c("AG11-FOREST SERVICE", "AG16-NATURAL RESOURCES CONSERVATION SERVICE", 
+             "IN15-U.S. FISH AND WILDLIFE SERVICE", "IN08-GEOLOGICAL SURVEY", 
+             "IN07-BUREAU OF RECLAMATION", "IN05-BUREAU OF LAND MANAGEMENT", 
+             "IN10-NATIONAL PARK SERVICE", "EP00-ENVIRONMENTAL PROTECTION AGENCY", 
+             "ARCE-U.S. ARMY CORPS OF ENGINEERS")
+interested <- emp_trends_agysubt %>%
+  filter(agysubt %in% bureaus)
+
+# tidying names: 
+interested <- interested %>%
+  separate(agysubt, c("abbr", "name"), "-") %>%
+  mutate(name = str_to_title(name),
+         name = gsub("U.s. ", "", name)) %>%
+  rename(bureau = name)
+# long for plotting: 
+long_interested <- pivot_longer(interested, total_emp:per_in_analyst)
+long_interested <- long_interested %>%
+  mutate(type = case_when(
+    grepl("total", name) ~ "total", 
+    grepl("per", name) ~ "percent"
+  ))
+
+ggplot(long_interested %>% filter(type == "total"), 
+       aes(x = year, y = value, color = bureau)) + 
+  geom_point() + 
+  geom_smooth(se = F) + 
+  theme_bw() + 
+    theme(legend.position = "bottom", 
+        axis.text.x = element_text(angle = 90)) + 
+  scale_x_continuous(breaks = seq(min(long_interested$year),
+                                  max(long_interested$year), 1)) + 
+  facet_wrap(~name, scales = "free_y") + 
+  labs(x = "Year", y = "Employees") + 
+  ggtitle("Total Employees in Analyst, STEM, and Tech Jobs")
+
+ggplot(long_interested %>% filter(type == "percent"), 
+       aes(x = year, y = value, color = bureau)) + 
+  geom_point() + 
+  geom_smooth(se = F) + 
+  theme_bw() + 
+    theme(legend.position = "bottom", 
+        axis.text.x = element_text(angle = 90)) + 
+  scale_x_continuous(breaks = seq(min(long_interested$year),
+                                  max(long_interested$year), 1)) + 
+  facet_wrap(~name, scales = "free_y") + 
+  labs(x = "Year", y = "% of Workforce") + 
+  ggtitle("% of Workforce in Analyst, STEM, and Tech Jobs")
+
+# ratio of STEM to tech talent: 
+interested$ratio_tech_stem <- (interested$total_tech/interested$total_stem)
+ggplot(interested, 
+       aes(x = year, y = ratio_tech_stem, color = bureau)) + 
+  geom_point() + 
+  geom_smooth(se = F) + 
+  theme_bw() + 
+    theme(legend.position = "bottom", 
+        axis.text.x = element_text(angle = 90)) + 
+  scale_x_continuous(breaks = seq(min(interested$year),
+                                  max(interested$year), 1)) + 
+  # facet_wrap(~name, scales = "free_y") + 
+  labs(x = "Year", y = "Tech/STEM") + 
+  ggtitle("Ratio of Tech to STEM Jobs")
+```
+
+Investigating trends by job series: 
+```{r}
+# grabbing trends at anysubt level: 
+# total employees across all enviro agencies: 
+test <- enviro %>%
+  group_by(agy, agysubt, year, occt) %>%
+  summarize(total_emp = sum(employment))
+# total employees in tech: 
+tech_emp_agysubt <- enviro %>%
+  filter(occ %in% tech_job_ttp) %>%
+  group_by(agy, agysubt, year) %>%
+  summarize(total_tech = sum(employment))
+# total employees in stem: 
+stem_occ_agysubt <- enviro %>%
+  filter(stemocc != "XXXX") %>%
+  group_by(agy, agysubt, year) %>%
+  summarize(total_stem = sum(employment))
+# total employees in data analyst jobs: 
+analyst_emp_agysubt <- enviro %>%
+  filter(occ %in% data_analyst) %>%
+  group_by(agy, agysubt, year) %>%
+  summarize(total_analyst = sum(employment))
+
+
+
+
+test <- enviro %>%
+  filter(stemocc != "XXXX") %>%
+  filter(stemocc != "****") %>%
+  filter(occ %in% data_analyst)
+
+# in stem: 2210, 1550, 0854, 1515
+tech_job_ttp <- c("1550", "2210", "2200", "1515", "0854")
+# in stem: "1530" "1529" "1560" "0150" "1370"
+data_analyst <- c("1560", "1370", "0150", "1371", "1374", "1530", "1529")
+# doesn't include these: 
+# 1371 (cartographic technician)
+# 1374 (geodetic technician)
+
+nrcs <- enviro %>%
+  filter(agysubt == "AG16-NATURAL RESOURCES CONSERVATION SERVICE") %>%
+  filter(stemocc != "XXXX") %>%
+  filter(stemocc != "****") %>%  
+  group_by(year, occt) %>%
+  summarize(total = sum(employment))
+
+ggplot(nrcs, aes(x = year, y = total, color = occt)) + 
+  geom_point() + 
+  geom_smooth(se = F) + 
+  theme_bw() + 
+  facet_wrap(~occt, scales = "free_y") + 
+  theme(legend.position = "none", 
+        axis.text.x = element_text(angle = 90)) + 
+  scale_x_continuous(breaks = seq(min(interested$year),
+                                  max(interested$year), 1))
+# wow - NRCS has had a huge exodus of IT-realted jobs - have those responsibilities 
+# been pawned over to other agencies within DOA?
+
+# doa <- enviro %>%
+#   filter(agy == "DOA") %>%
+#   group_by(year, stemocc, occt) %>%
+#   summarize(total = sum(employment))
+
+
+doa_other_agy <- enviro %>%
+  filter(agy == "DOA") %>%
+  filter(!(agysubt %in% bureaus)) %>%
+  group_by(year, agysubt, stemocc) %>%
+  summarize(total = sum(employment)) %>%
+  mutate(stem_job = case_when(!(stemocc %in% c("XXXX", "****")) ~ "STEM", 
+                              TRUE ~ "NOT STEM"))
+
+
+ggplot(doa_other_agy, aes(x = year, y = total, color = stem_job)) + 
+  geom_point() 
+
+
+
+
+
+##########
+# job trends: 
+stem_jobs <- enviro %>%
+  filter(stemocc != "XXXX") %>%
+  filter(stemocc != "****") %>%  
+  group_by(year, agysubt, occ, occt) %>%
+  summarize(total = sum(employment))
+
+# in stem: 2210, 1550, 0854, 1515
+tech_job_ttp <- c("1550", "2210", "2200", "1515", "0854")
+# computer scientists, IT technology management, operations research, 
+# computer engineering
+
+# in stem: "1530" "1529" "1560" "0150" "1370"
+data_analyst <- c("1560", "1370", "0150", "1530", "1529")
+# data scientists, cartographers, geographers, cartographic technician, 
+# geodetic technician, statistics, mathematical statistics 
+
+# STEM jobs do not include these - removing them from data analyt category for now: 
+# 1371 (cartographic technician)
+# 1374 (geodetic technician)
+x <- enviro %>%
+  filter(occ %in% c("1371", "1374"))
+
+```

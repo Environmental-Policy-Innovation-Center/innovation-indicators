@@ -1,0 +1,1029 @@
+---
+title: "USAJobs Analysis"
+author: "EmmaLi Tsai"
+date: "2024-10-07"
+output: 
+  html_document:
+    toc: true
+    theme: united
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# 0.0: Libraries, data, palettes, and themes: 
+```{r message = F, results = 'hide'}
+# libraries:
+library(tidyverse)
+library(aws.s3)
+library(jsonlite)
+library(httr)
+library(googlesheets4)
+
+
+# data - NOTE - data for analysis capped at oct 28th 2024 
+usajobs <- readRDS("./data/usajobs_data-2024-10-28.rds")
+# TODO - figure out how to grab versions of an object in s3 (seems like an 
+# unresolved problem in the aws.s3 package?)
+
+# regardless - latest data are available below: 
+# test <- aws.s3::s3read_using(readRDS,
+#                              object = "s3://tech-team-data/enviro-hiring-trends/data/usajobs_data.rds", 
+#                              opts = list(versionId = "MQH6WA75EaSgZY.I2LH7x6VkYYZhTsQt"))
+
+
+
+# grabbing mco tags: don't forget your USAJOBS API key
+# url_active <- "https://data.usajobs.gov/api/codelist/missioncriticalcodes"
+# 
+# # connect w/ API and transfer to readable format:
+# get_job_active <- httr::GET(url_active, httr::add_headers("Host"=host,
+#                                                           "Authorization-Key"=authkey,
+#                                                           "User-Agent"=useragent))
+# get_job_text_active <- content(get_job_active, "text")
+# get_job_json_active <- fromJSON(get_job_text_active, flatten = TRUE)
+# 
+# # looking at output
+# mco_tags <- as.data.frame(get_job_json_active$CodeList$ValidValue)
+# write.csv(mco_tags, "./data/mco_tags.csv", row.names = F)
+
+# pulling in mission critical operations codes from the API (code above)
+mco_tags <- read_csv("./data/mco_tags.csv") %>%
+  select(-X) %>%
+  janitor::clean_names() %>%
+  mutate(code = as.character(code)) %>%
+  mutate(code = 
+           case_when(nchar(code) == 1 ~ paste0(0, code), 
+                     TRUE ~ code))
+
+
+# fonts: 
+sysfonts::font_add_google("Lato")
+showtext::showtext_auto()
+
+# palette and themes: 
+# continuous palettes - based on EPIC's primary colors: 
+cont_palette <- colorRampPalette(c("#172f60","#4ea324"))
+
+# categorical palettes - based on new EPIC template: 
+cat_palette_pastel <- colorRampPalette(c("#526489","#527CAF",
+                                         "#B077B2","#E4BE7C",
+                                         "#b15712","#82AB6E"))
+
+cat_palette <- colorRampPalette(c("#172f60","#1054a8",
+                                  "#791a7b","#de9d29", 
+                                  "#b15712","#4ea324"))
+# theme: 
+# legend position is right, text size is at least 10, and text is Lato
+epic_chart_theme <- theme_minimal() + 
+  theme(legend.position = "right", 
+        text = element_text(size = 13, family = "Lato"), 
+        legend.text = element_text(size = 10, family = "Lato"), 
+        legend.title = element_text(size = 11, family = "Lato"), 
+        axis.text.x = element_text(margin = margin(t = 10, r = 0, 
+                                                   b = 0, l = 0)), 
+        axis.title.x = element_text(margin = margin(t = 10, r = 0, 
+                                                    b = 0, l = 0)), 
+        axis.text.y = element_text(margin = margin(t = 0, r = 10, 
+                                                   b = 0, l = 0)), 
+        axis.title.y = element_text(margin = margin(t = 0, r = 10, 
+                                                    b = 0, l = 0))) 
+
+
+# tidying of USAJobs data: 
+# quick metadata for main components: 
+# agency name: matched_object_descriptor_department_name
+# subagency name: matched_object_descriptor_organization_name
+# series at the end of: matched_object_descriptor_job_category
+# position title: matched_object_descriptor_position_title
+# when the job opened: matched_object_descriptor_publication_start_date
+# description & LOTS of text: matched_object_descriptor_qualification_summary
+
+usajobs_tidy <- usajobs %>%
+    select(matched_object_id, 
+         matched_object_descriptor_department_name, 
+         matched_object_descriptor_organization_name, 
+         matched_object_descriptor_job_category, 
+         matched_object_descriptor_position_title, 
+         matched_object_descriptor_job_grade,
+         matched_object_descriptor_user_area_details_low_grade,
+         matched_object_descriptor_user_area_details_high_grade,
+         matched_object_descriptor_position_location, 
+         matched_object_descriptor_publication_start_date, 
+         matched_object_descriptor_application_close_date,
+         matched_object_descriptor_qualification_summary, 
+         matched_object_descriptor_user_area_details_hiring_path,
+         matched_object_descriptor_user_area_details_job_summary,
+         matched_object_descriptor_position_remuneration,
+         matched_object_descriptor_user_area_details_major_duties,
+         matched_object_descriptor_user_area_details_total_openings,
+         matched_object_descriptor_user_area_details_mco_tags,
+         all_keywords) %>%
+    # renaming these looooong colnames
+  rename(id = matched_object_id, 
+         agency = matched_object_descriptor_department_name, 
+         subagency = matched_object_descriptor_organization_name, 
+         series = matched_object_descriptor_job_category, 
+         position = matched_object_descriptor_position_title, 
+         location = matched_object_descriptor_position_location, 
+         grade_type = matched_object_descriptor_job_grade, 
+         low_grade = matched_object_descriptor_user_area_details_low_grade,
+         high_grade = matched_object_descriptor_user_area_details_high_grade,
+         date_posted = matched_object_descriptor_publication_start_date, 
+         date_closes = matched_object_descriptor_application_close_date,
+         hiring_path = matched_object_descriptor_user_area_details_hiring_path,
+         salary_rage = matched_object_descriptor_position_remuneration,
+         qual_summary = matched_object_descriptor_qualification_summary, 
+         job_summary = matched_object_descriptor_user_area_details_job_summary, 
+         major_duties = matched_object_descriptor_user_area_details_major_duties, 
+         openings = matched_object_descriptor_user_area_details_total_openings, 
+         mco_tags = matched_object_descriptor_user_area_details_mco_tags) %>%
+  # formatting dates and main character columns
+  mutate(date_posted = as.Date(date_posted, tryFormats = c("%Y-%M-%d")), 
+         date_closes = as.Date(date_closes, tryFormats = c("%Y-%M-%d")), 
+         days_open = date_closes - date_posted, 
+         agency = str_to_title(agency), 
+         subagency = str_to_title(subagency), 
+         position = str_to_title(position), 
+         openings = str_to_title(openings)) %>%
+  # unnesting grade column: 
+  unnest(., grade_type) %>%
+  rename(grade_type_code = Code) 
+
+
+# unnesting ALL series associated with an announcement, and fixing 
+# such that there is only one row per announcement and the series are 
+# appended together in a comma-separated list 
+series_tidy <- usajobs_tidy %>%
+  unnest(., series) %>%
+  rename(series_name = Name, 
+         series_code = Code) %>%
+  group_by(id, agency, subagency, position) %>%
+  summarize(all_series = paste(unique(series_name), collapse = ", "), 
+            all_series_code = paste(unique(series_code), collapse = ", ")) 
+
+# merge data back with usajobs data such that the series are as a comma sep
+# list
+usajobs_tidy_series <- merge(usajobs_tidy, series_tidy, 
+                             by = c("id", "agency", 
+                                    "subagency", "position")) %>%
+  select(-series)
+
+
+# grabbing hiring paths and mco tags: 
+hiring_paths <- unnest(usajobs_tidy_series, hiring_path) %>%
+  mutate(mco_tags = sapply(mco_tags, paste, collapse = ", ")) %>%
+  group_by(id, agency, subagency, position, all_series,
+           all_series_code, date_posted, date_closes) %>%
+  summarize(hiring_paths = paste(unique(hiring_path), collapse =", "), 
+            all_mco_tags = paste(unique(mco_tags), collapse = ", "))
+
+# merging back together: 
+usajobs_simple <- merge(usajobs_tidy_series, hiring_paths, 
+                        by = c("id", "agency", "subagency", 
+                               "all_series_code", "all_series",
+                               "position", 
+                               "date_posted", 
+                               "date_closes")) %>%
+  select(-c(hiring_path, mco_tags))
+```
+
+To create this dataset, we conducted daily pulls of announcements from USAJobs that matched to the following seven keywords: Data, Technology, Software, Programming, Product, Steward, and Innovation. Jobs that matched to multiple keywords were consolidated to one single announcement and the keywords were appended together in a single column (i.e., data, technology, innovation). From the [API documentation](https://developer.uat.usajobs.gov/api-reference/get-api-search), the "keyword will search for all of the words specified (or synonyms of the word) throughout the job announcement." 
+
+While the historic API could be used to look at job announcements over time, this API is down with no timeline on when it will be available again. Based on documentation, the historic API only retains high-level information on the announcement - the lack of more detailed job descriptions or key requirements makes it difficult for more detailed analyses. 
+
+As a result of this limitation, we developed a daily web scraper of USAJobs to pull jobs that matched with our keywords. The wide net of jobs we cast resulted in `r nrow(usajobs_simple)` different job announcements from `r min(usajobs$pull_date)` to `r max(usajobs$pull_date)`. Let's narrow this down to some key environmental agencies. 
+
+```{r eval = FALSE}
+# Data exploration - investigating mass job announcments, and others that 
+# are advertised to DHA & internal employees 
+
+# some jobs have two announcements - one for DHA, and another for all other hiring paths
+# usajobs_simple %>% 
+#   filter(id %in% c("813826200", "813826000"))
+
+# some announcements are for multiple jobs and series, with the same key 
+# responsibilities
+# usajobs_simple %>% 
+#   filter(id == "805706100")
+
+# some are rolling announcements where they periodically accept applicants: 
+# usajobs_simple %>%
+#   filter(id == "770826600")
+
+# # 41 match to steward in major duties, of these, 6 mention data steward
+# test <- enviro_jobs %>% 
+#   filter(subagency == "National Oceanic And Atmospheric Administration") %>%
+#   filter(steward == 1)
+
+# steward <- enviro_jobs %>% 
+#   filter(grepl("data steward", enviro_jobs$major_duties))
+
+
+# # investigating DHA positions: 
+# dha <- enviro_jobs %>% 
+#   filter(id %in% c("813826200", "813826000"))
+
+```
+
+
+# 1.0 Looking at our entire set of announcements, what are some overall summary stats for the agencies we frequently work with? 
+```{r fig.height = 9, fig.width = 10}
+# Grabbing the agencies and subagencies we care about, and breaking out 
+# the number of hits for each keyword of interest: 
+enviro_jobs <- usajobs_simple %>%
+  filter(subagency %in% c("Environmental Protection Agency", 
+                            "Natural Resources Conservation Service", 
+                            "Forest Service", 
+                            "National Oceanic And Atmospheric Administration", 
+                            "National Park Service",
+                            "U.s. Fish And Wildlife Service",
+                            "Bureau Of Land Management",
+                            "Bureau Of Reclamation",
+                            "Geological Survey",
+                            "U.s. Army Corps Of Engineers")) %>%
+  # there's definitely a better way to do this
+  mutate(data = case_when(grepl("Data", all_keywords) ~ 1, 
+                          TRUE ~ 0), 
+         tech = case_when(grepl("Tech", all_keywords) ~ 1, 
+                          TRUE ~ 0),
+         software = case_when(grepl("Soft", all_keywords) ~ 1, 
+                              TRUE ~ 0),
+         programming = case_when(grepl("Programming", all_keywords) ~ 1, 
+                                 TRUE ~ 0), 
+         prod_manager = case_when(grepl("Product", all_keywords) ~ 1, 
+                                  TRUE ~ 0), 
+         steward = case_when(grepl("Steward", all_keywords) ~ 1, 
+                                  TRUE ~ 0),
+         innov = case_when(grepl("Innovation", all_keywords) ~ 1, 
+                                  TRUE ~ 0), 
+         gis = case_when(grepl("Geospatial", all_keywords) ~ 1, 
+                                  TRUE ~ 0)) %>%
+  mutate(subagency = gsub("U.s.", "U.S.", subagency)) %>%
+  mutate(total_keywords = select(., data:gis) 
+         %>% rowSums(na.rm = TRUE)) %>%
+  # these are keywords not within our scope (i.e., permits)
+  filter(total_keywords != 0) %>%
+  # adding salary bands - unnesting them from this dataframe:
+  unnest(salary_rage) %>%
+  janitor::clean_names() %>%
+  select(-rate_interval_code) %>%
+  # creating tidy duties to pass to chatGPT - needed because of inconsistent 
+  # formatting 
+  mutate(tidy_duties = sapply(major_duties, paste, collapse = ". ")) %>%
+  # creating a unique ID since the same job description may be present in 
+  # multiple jobs: 
+  mutate(tidy_duties = paste(id, tidy_duties))
+
+
+# there's definitely a better way to do this, but since the code list isn't
+# comprehensive and there's some random ones in our dataset, this is the 
+# best way to partial match them quickly 
+enviro_jobs <- enviro_jobs %>% 
+  mutate(mco_tags_tidy = case_when(
+    grepl("01", all_mco_tags) ~ paste0(all_mco_tags, ", Cyber Secruity"),
+    grepl("02", all_mco_tags) ~ paste0(all_mco_tags, ", Data Scientist"),
+    grepl("03", all_mco_tags) ~ paste0(all_mco_tags, ", Economist"),
+    grepl("04", all_mco_tags) ~ paste0(all_mco_tags, ", Privacy"),
+    grepl("05", all_mco_tags) ~ paste0(all_mco_tags, ", Program/Project Management"),
+    grepl("06", all_mco_tags) ~ paste0(all_mco_tags, ", Grants Management"),
+    grepl("07", all_mco_tags) ~ paste0(all_mco_tags, ", STEM"),
+    grepl("08", all_mco_tags) ~ paste0(all_mco_tags, ", Intelligence"),
+    grepl("09", all_mco_tags) ~ paste0(all_mco_tags, ", COVID"),
+    grepl("10", all_mco_tags) ~ paste0(all_mco_tags, ", Infrastructure Act"), 
+    TRUE ~ all_mco_tags)) %>%
+  relocate(mco_tags_tidy, .after = all_mco_tags)
+
+
+# how many jobs and series got hit by these keywords? 
+job_posting_summary <- enviro_jobs %>%
+  group_by(subagency) %>%
+  summarize(total_announcements = n(), 
+            # mco = sum(nchar(all_mco_tags) > 0),
+            data = sum(data), 
+            tech = sum(tech), 
+            software = sum(software), 
+            programming = sum(programming), 
+            product = sum(prod_manager), 
+            steward = sum(steward), 
+            innovation = sum(innov), 
+            gis = sum(gis))
+
+DT::datatable(job_posting_summary %>% 
+  mutate(across(data:gis, ~round(100*(./total_announcements), 2))))
+```
+
+Filtering the dataset to our key environmental agencies resulted in `r nrow(enviro_jobs)` job announcements. Above, you're seeing the total number of announcements that hit our keywords for each subagency, and the percentage of jobs that hit each keyword (data to gis columns). Note here that a single announcement may have matched to multiple keywords, and it's possible a single opening may have two job announcements (often one for the public, and another for internal hiring authorities). Announcements may also have multiple job series associated with them (see example [here](https://www.usajobs.gov/job/752981100/print)), but were kept as a single announcement for this chart to avoid over-counting keywords for a single announcement. 
+
+Here is the same information in the form of a heatmap: 
+```{r fig.height = 9, fig.width = 10}
+# pivoting to long for plotting: 
+job_posting_long_pct <- job_posting_summary %>% 
+  # calculating percentage of announcements
+  mutate(across(data:gis, ~100*(./total_announcements))) %>%
+  pivot_longer(., cols = data:gis)
+
+pct_jobs <- ggplot(job_posting_long_pct, aes(x = name,
+                                             y = subagency, 
+                             fill = value)) + 
+  geom_tile(color = "white") + 
+  scale_fill_gradientn(colours = cont_palette(3), 
+                         name = "% of Announcements") + 
+  theme_minimal() + 
+  labs(x = "", y = "") + 
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+
+plotly::ggplotly(pct_jobs)
+```
+
+Of the subagencies included in our study, USACE posted the most announcements over this time period. Across all of the subagencies, most announcements matched with the "data" keyword. USGS, USFWS, and EPA had 35-46% of announcements match to the "software" keyword, indicating these subagencies have more positions that may work either with software or in software development. NOAA the largest spread of percentages, with ~7-20% of jobs that matched with software, programming, product, steward, or innovation. This subagency also had the largest percentage of jobs that got matched with the "innovation" & "GIS" keyword. 
+
+
+Here is the same plot without data & technology, which matched to the most positions: 
+```{r fig.height = 9, fig.width = 10}
+# removing data: 
+no_data <- job_posting_long_pct %>% 
+  filter(!(name %in% c("data", "tech")))
+
+pct_jobs_nodata <- ggplot(no_data, aes(x = name,
+                                       y = subagency, 
+                                       fill = value)) + 
+  geom_tile(color = "white") + 
+  scale_fill_gradientn(colours = cont_palette(3), 
+                         name = "% of Announcements") + 
+  theme_minimal() + 
+  labs(x = "Keywords", y = "") + 
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+
+plotly::ggplotly(pct_jobs_nodata)
+```
+
+## 1.1 How many anouncements contained a mission critical code? 
+```{r}
+# grouping and summarizing by mco flag 
+mco_totals <- enviro_jobs %>%
+  mutate(is_mco = 
+           case_when(nchar(all_mco_tags) > 0 ~ "MCO", 
+                     TRUE ~ "Not MCO")) %>%
+  group_by(subagency, is_mco) %>%
+  summarize(total_announcements = n()) %>%
+  pivot_wider(., names_from = is_mco, values_from = total_announcements) %>%
+  # calcualting % of jobs: 
+  mutate(percent_mco = round(100*(MCO/(MCO + `Not MCO`)),2))
+
+DT::datatable(mco_totals)
+```
+
+How do these compare to the keywords they matched to? 
+```{r fig.height = 9, fig.width = 10}
+# grouping and summarizing data by mco tag to figure out how many 
+# matched to various keywords 
+mco_summary <- enviro_jobs %>%
+  mutate(is_mco = 
+           case_when(nchar(all_mco_tags) > 0 ~ "MCO", 
+                     TRUE ~ "Not MCO")) %>%
+  group_by(subagency, is_mco) %>%
+  summarize(total_announcements = n(), 
+            # mco = sum(nchar(all_mco_tags) > 0),
+            data = sum(data), 
+            tech = sum(tech), 
+            software = sum(software), 
+            programming = sum(programming), 
+            product = sum(prod_manager), 
+            steward = sum(steward), 
+            innovation = sum(innov), 
+            gis = sum(gis)) %>%
+  mutate(across(data:gis, ~100*(./total_announcements))) %>%
+  pivot_longer(., cols = data:gis)
+
+# plottin'
+mco_summary_plot <- ggplot(mco_summary, aes(x = name,
+                                             y = subagency, 
+                             fill = value)) + 
+  facet_wrap(~is_mco, ncol = 1) + 
+  geom_tile(color = "white") + 
+  scale_fill_gradientn(colours = cont_palette(3), 
+                         name = "% of Announcements") + 
+  theme_minimal() + 
+  labs(x = "", y = "") + 
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+
+plotly::ggplotly(mco_summary_plot)
+```
+
+With the wide spread of percentages of announcements tagged as mission critical, this may reflect differences in hiring strategies, rather than actual mission critical positions. Nearly all positions posted by the USACE were tagged as mission critical for national security. Positions tagged as mission critical in subagencies that use this tag infrequently were often STEM jobs, Infrastructure Act jobs, or for fire response. 
+
+## 1.2 What % of announcements matched with multiple keywords? 
+```{r fig.height = 9, fig.width = 10}
+# how many matched with 1-7 keywords?
+enviro_keywords_summary <- enviro_jobs %>%
+  group_by(subagency, total_keywords) %>%
+  summarize(total_jobs_matched = n())
+
+# grabbing totals for percentages: 
+total_jobs <- job_posting_summary %>%
+  select(subagency, total_announcements) 
+
+# mergin' 
+keywords_pct <- merge(enviro_keywords_summary, 
+                      total_jobs, by = "subagency") %>%
+  mutate(pct_keywords = 100*(total_jobs_matched/total_announcements))
+
+# plotting: 
+keyword_pct_plot <- ggplot(keywords_pct, aes(x = total_keywords, 
+                                             y = subagency, 
+                                             fill = pct_keywords)) + 
+  geom_tile(color = "white") + 
+  scale_fill_gradientn(colours = cont_palette(3), 
+                       name = "% of Announcements") + 
+  theme_minimal() +  
+  labs(y = "", x = "Number of Keywords") + 
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+
+plotly::ggplotly(keyword_pct_plot)
+```
+
+NOAA had the largest percentage of announcements that matched with multiple keywords at 7%, followed by USGS at 1.34%. Based on data exploration, announcements that meet this criteria at NOAA may involve weather forecasting and modeling - requiring a lot of software and programming experience. Once the USAJobs historic API is released, we can normalize these trends to investigate how these positions relate to all jobs posted at a particular subagency. 
+
+
+## 1.3 How many job announcements mention programming in major duties? 
+```{r fig.height = 9, fig.width = 10}
+prog_jobs <- enviro_jobs %>%
+  filter(grepl("programming", major_duties))
+prog_jobs %>%
+  group_by(subagency) %>%
+  summarize(total_announcements = n())
+```
+
+Based on simple string matching, not many jobs mention programming in major duties. We'll take a deeper dive into this question in section 3. 
+
+
+## 1.4 What is the density of keywords we care about?
+```{r}
+# TODO - would have to loop through each set of major duties, split, and 
+# detect each keyword 
+maj_duties_split <- unlist(str_split(enviro_jobs$major_duties[1], " "))
+str_count(maj_duties_split, "data")
+
+```
+
+
+## 1.5 What's the relationship between keywords and pay level?
+```{r fig.height = 12, fig.width = 10}
+# Looking at starting pay range instead, to avoid having to crosswalk GS levels
+# translating per hour to per year 
+salary_band <- enviro_jobs %>%
+  mutate(min_annual_salary = case_when(
+    # assuming 40 hours a week over 52 weeks
+    description == "Per Hour" ~ as.numeric(minimum_range)*40*52,
+    TRUE ~ as.numeric(minimum_range))) %>%
+  mutate(min_annual_salary_bin = round(min_annual_salary, -4))
+
+# summarizing data by keyword
+salary_band_summary <- salary_band %>% 
+  group_by(subagency, min_annual_salary_bin) %>%
+  summarize(total_announcements = n(), 
+            data = sum(data), 
+            tech = sum(tech), 
+            software = sum(software), 
+            programming = sum(programming), 
+            prod_manager = sum(prod_manager), 
+            steward = sum(steward), 
+            innovation = sum(innov), 
+            gis = sum(gis)) %>%
+  mutate(across(data:gis, ~100*(./total_announcements))) %>%
+  pivot_longer(., cols = data:gis)
+
+# plottin'
+ggplot(salary_band_summary, 
+       aes(x = name, y = min_annual_salary_bin, 
+           fill = value)) + 
+  geom_tile(color = "white") + 
+  facet_wrap(~subagency,  ncol = 5) +
+  scale_fill_gradientn(colours = cont_palette(3), 
+                       name = "% of Announcements") + 
+  theme_minimal() +  
+  labs(x = "Keywords", y = "Salary Range") + 
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1), 
+        legend.position = "bottom") 
+```
+
+With the net of announcements we caught in our API search, the Forest Service and NPS have the lowest salary bands. 
+
+# 2.0 Zooming in on GIS, Innovation, and Programming keywords: 
+```{r}
+# creating a new flag to capture jobs that matched with any of the above 
+# keywords 
+enviro_jobs_flag <- enviro_jobs %>%
+  mutate(gis_innov_prog = case_when(
+    (gis + innov + programming) > 0 ~ "Yes", 
+    TRUE ~ "No"
+  ))
+
+DT::datatable(enviro_jobs_flag %>% filter(gis_innov_prog == "Yes") %>%
+                select(subagency, position, openings))
+```
+When zooming in on jobs that matched with the GIS, Innovation, and Programming keywords, this narrowed our scope to `r nrow(enviro_jobs_flag %>% filter(gis_innov_prog == "Yes"))` jobs out of `r nrow(enviro_jobs_flag)`.
+
+
+## 2.1 Which agencies are advertising jobs in GIS, Innovation, and Programming? 
+```{r}
+gis_innov_prog <- enviro_jobs_flag %>%
+  filter(gis_innov_prog == "Yes")
+
+# grabbing total jobs at the agency
+total_jobs <- enviro_jobs_flag %>% 
+  group_by(subagency) %>%
+  summarize(total_jobs = n())
+
+# summarizing by subagencies 
+gis_innov_prog_summary <- gis_innov_prog %>%
+  group_by(subagency) %>%
+  summarize(gis_innov_prog_jobs = n(), 
+            gis_innov_prog_mco = sum(nchar(mco_tags_tidy) > 0), 
+            total_gis = sum(gis), 
+            total_innovation = sum(innov), 
+            total_programming = sum(programming)) %>%
+  left_join(total_jobs, by = "subagency") %>%
+  relocate(total_jobs, .after = subagency)
+
+DT::datatable(gis_innov_prog_summary)
+```
+
+
+# 3.0 Exploring data using chatGPT - ran on Oct 28th 2024 
+```{r eval = FALSE}
+# defining column names: 
+columnnames <- c("job_gpt_name", 
+                 "overview",
+                 "how_software_used",
+                 "programming_types", 
+                 "innovative_tech",
+                 "emerging_tech",
+                 "agile_startup_ux",
+                 "use_ai", 
+                 "user_research", 
+                 "stem_job",
+                 "similar_to_data_steward", 
+                 "innovative_score")
+
+
+# sending to ChatGPT API
+
+# Your API key
+
+# The API endpoint 
+api_url <- "https://api.openai.com/v1/chat/completions"
+
+# Create a function to generate a concise prompt
+generate_prompt <- function(major_duties) {
+  print(major_duties)
+  paste(
+    "Provide a description for job: ", major_duties, ", in the following format:",
+    "* Brief name of the job title",
+    "* A short description of the job",
+    "* A short description of the software skills and how software will be used",
+    # v instead of this - does this mention any programming languages? 
+    "* A short list of programming languages mentioned. If none are mentioned, simply use the word `none`.",
+    "* Would you classify this as an innovative tech job that would contribute to tech talent in the agency: yes/no",
+    "* Does the job mention emerging technology: yes/no",
+    "* Does the job mention Pilot, Startup, Lab, UCD, HCD, UX, CX: yes/no",
+    "* Does the job mention the use of AI: yes/no",
+    "* Does the job mention user research: yes/no",
+    "* Would the job be classified as related to Science, Technology, Engineering, or Mathematics (STEM)?: yes/no",
+    "* On a scale of 1-10, how similar is this job to these responsibilities: Formulate or assess the question(s) or problem for which data is needed. Support with the identification and documentation of organizational data assets. Monitor and assess organizational data for value, potential and risk. Help formulate and determine organizational (the business case) and societal value propositions. Lead conversations on the ethical and fundamental rights implications of using, or not using, data. Help define operational, technical and governance requirements for data collaboration; Help establish processes that allow for metrics to be captured and impact to be measured. Support with the scoping and iterating of “minimum viable” data assessments for partnerships",
+    "* Give the job an innovative score if they use AI, Open Source Code, Agile software Development, APIs: 1 (none of the above) - 10 (all) ",
+    # "* Give a single number response to represent the overall confidence of the response you created: 1 (single source, filling lots of information) - 5 (multiple sources, all information in job description)", 
+    
+    sep = " "
+  )
+}
+
+
+# function for structured API request: 
+make_structured_api_req <- function(api_url, api_key, prompt) {
+  # Define the function with the specifc types and descriptions for each column: 
+  function_spec <- list(
+    name = "generate_structured_job_analysis",
+    description = "Generates a structured analysis of the job description based on key innovation and tech talent criteria.",
+    parameters = list(
+      type = "object",
+      properties = list(
+        job_gpt_name = list(type = "string", description = "Brief name of the job title"),
+        overview = list(type = "string", description = "Short description of the job"),
+        how_software_used = list(type = "string", description = "Explanation of software usage in the job. Use the word 'none' if not mentioned"),
+        programming_types = list(type = "string", description = "Short list of programming languages, such as: Python, R. Use the word 'none' if not mentioned"),
+        innovative_tech = list(type = "boolean", description = "Is this an innovative tech job?"),
+        emerging_tech = list(type = "boolean", description = "Does the job mention emerging technology?"),
+        agile_startup_ux = list(type = "boolean", description = "Does the job reference Agile, Startup, UX, etc."),
+        use_ai = list(type = "boolean", description = "Is AI mentioned?"),
+        user_research = list(type = "boolean", description = "Does the job involve user research?"),
+        stem_job = list(type = "boolean", description = "Is the job STEM-related?"),
+        similar_to_data_steward = list(type = "number", description = "On a scale of 1-10, how similar is this job to these responsibilities: Formulate or assess the question(s) or problem for which data is needed. Support with the identification and documentation of organizational data assets. Monitor and assess organizational data for value, potential and risk. Help formulate and determine organizational (the business case) and societal value propositions. Lead conversations on the ethical and fundamental rights implications of using, or not using, data. Help define operational, technical and governance requirements for data collaboration; Help establish processes that allow for metrics to be captured and impact to be measured. Support with the scoping and iterating of “minimum viable” data assessments for partnerships"),
+        innovative_score = list(type = "number", description = "Give the job an innovative score if they use AI, Open Source Code, Agile software Development, APIs: 1 (none of the above) - 10 (all)")
+      ),
+      required = c("job_gpt_name", "overview", "how_software_used", 
+                   "programming_types", "innovative_tech", "emerging_tech",
+                   "agile_startup_ux", "use_ai", "user_research", "stem_job", 
+                   "similar_to_data_steward", "innovative_score")
+    )
+  )
+  
+  # Create the request payload with the function call
+  request_body <- toJSON(list(
+    # NOTE THIS IS IMPORTANT !!!!!!!!!!!!!!!!!!!! Don't use gpt-4 
+    # https://openai.com/api/pricing/
+    model = "gpt-4o-2024-08-06",
+    messages = list(
+      list(
+        role = "system",
+        content = paste(
+          "You are an assistant that generates a structured analysis of job descriptions for research on innovation and tech talent.",
+          "Standardize responses across job descriptions and use a schema to structure the output."
+        )
+      ),
+      list(
+        role = "assistant",
+        content = prompt
+      )
+    ),
+    functions = list(function_spec),
+    function_call = list(name = "generate_structured_job_analysis")
+  ), auto_unbox = TRUE)
+  
+  # Send the API request
+  response <- POST(
+    url = api_url,
+    add_headers(
+      `Authorization` = paste("Bearer", api_key),
+      `Content-Type` = "application/json"
+    ),
+    body = request_body,
+    encode = "json"
+  )
+  
+  # Check the response status
+  if (status_code(response) == 200) {
+    content <- content(response, as = "parsed", type = "application/json", encoding = "UTF-8")
+    # Extract the structured response data
+    return(content$choices[[1]]$message$function_call$arguments)
+  } else {
+    stop("API request failed with status code ", status_code(response), ": ", content(response, "text", encoding = "UTF-8"))
+  }
+}
+
+
+###############################################################################
+# tidying major duties - data is from October 28th 2024
+enviro_jobs_gpt <- enviro_jobs 
+enviro_jobs_gpt <- enviro_jobs_gpt %>%
+  # creating tidy duties without the id to just grab unique ones: 
+  mutate(tidy_duties_noid = sapply(major_duties, paste, collapse = ". "))
+
+# grabbing only unique duties 
+unique_duties <- unique(enviro_jobs_gpt$tidy_duties_noid)
+# results in 2,159, saving us $2.06 :-)
+
+
+# wondering what this workflow would look like: 
+# results_4o_2024_duties <- list()
+for(i in 41:length(unique_duties)){
+  # what loop are we on?!
+  print(paste0("on loop: ", i))
+  
+  # grabbing job duties: 
+  name <- unique_duties[i]
+  
+  # generate the prompt and run response text:
+  prompt <- generate_prompt(name)
+  
+  # NOTE - function has been added to environment with model = "gpt-4o-2024-08-06"
+  response_text <- make_structured_api_req(api_url, api_key, prompt)
+  
+  # adding this to global enviro if loop breaks 
+  results_4o_2024_duties <<- append(results_4o_2024_duties, 
+                                   list(c(name, response_text)))
+  # beeeeeep
+  # beepr::beep(2)
+}
+
+# saving result - THIS contains chatgpt 4o model, and data from Oct 28th 
+# this took 2.5 hours to run and cost $8.29 for 2,159 responsibilities
+
+# saveRDS(results_4o_2024_duties, "./data/usajobs_data_chatgpt_FINAL.rds")
+
+# Convert results to a dataframe
+results_4o_duties <- do.call(rbind.data.frame, results_4o_2024_duties)
+
+# tidying names: 
+names(results_4o_duties) <- c("job_desc", "gpt_desc")
+
+# final separating and organizing result 
+final_results_4o_duties_df <- results_4o_duties %>%
+  # separating into columns 
+  separate(gpt_desc, into = columnnames, sep = ",\"", 
+           fill = "right", extra = "merge") %>%
+  # removing the prompt tag from the result
+  mutate(across(2:ncol(.), ~str_extract(.x, "(?<=:).*"))) %>%
+  mutate(across(2:ncol(.), ~trimws(.x)))
+
+
+
+# troubleshooting 5 odd ones 
+odd_results <- final_results_4o_duties_df %>% 
+  filter(innovative_score == "false}")
+# hmm! the order of these columns are very different from the others
+odd_og_results <- results_4o_duties %>%
+  filter(job_desc %in% odd_results$job_desc)
+
+odd_colnames <- c("agile_startup_ux", "emerging_tech", "how_software_used", 
+                  "innovative_score", "innovative_tech", "job_gpt_name", 
+                  "overview", "programming_types", "similar_to_data_steward", 
+                  "stem_job", "use_ai", "user_research")
+fixed_odd_results <- odd_og_results %>%
+  # separating into columns 
+  separate(gpt_desc, into = odd_colnames, sep = ",\"", 
+           fill = "right", extra = "merge") %>%
+  # removing the prompt tag from the result
+  mutate(across(2:ncol(.), ~str_extract(.x, "(?<=:).*"))) %>%
+  mutate(across(2:ncol(.), ~trimws(.x))) %>%
+  mutate(user_research = gsub("}", "", user_research))
+
+
+# removing the odd entries and replacing them with the fixed ones: 
+good_gpt_results <- final_results_4o_duties_df %>%
+  filter(!(job_desc %in% fixed_odd_results$job_desc))
+
+all_gpt_results <- bind_rows(good_gpt_results, fixed_odd_results)
+
+# test merging back: 
+final_enviro_gpt <- merge(enviro_jobs_gpt, all_gpt_results, 
+              by.x = "tidy_duties_noid",
+              by.y = "job_desc") %>%
+  mutate(innovative_score = gsub("}", "", innovative_score))
+# saveRDS(final_enviro_gpt, "./data/usajobs_data_chatgpt_FINALTIDY.rds")
+```
+
+Key responsibilities were passed to chatGPT because through visual inspection of the data, this field has the most specific information related to the job. 
+
+For job's responsibilities, the following information was passed to chatGPT to generate a structured response: 
+ * Brief name of the job title 
+ * A short description of the job
+ * A short description of the software skills and how software will be used
+ * A short list of programming languages mentioned. 
+ * Would you classify this as an innovative tech job that would contribute to tech talent in the agency: yes/no
+ * Does the job mention emerging technology: yes/no
+ * Does the job mention Pilot, Startup, Lab, UCD, HCD, UX, CX: yes/no
+ * Does the job mention the use of AI: yes/no
+ * Does the job mention user research: yes/no
+ * Would the job be classified as related to Science, Technology, Engineering, or Mathematics (STEM)?: yes/no
+ * On a scale of 1-10, how similar is this job to the [responsibilities of a data steward](https://medium.com/data-stewards-network/wanted-data-stewards-drafting-the-job-specs-for-a-re-imagined-data-stewardship-role-f7cd28a83379)? 
+ * Give the job an innovative score if they use AI, Open Source Code, Agile software Development, APIs: 1 (non of the above) - 10 (all)
+
+## 3.1 What subagencies have announcements with the highest innovation scores?
+```{r fig.height = 9, fig.width = 10}
+# reading in data - Oct 28th 2024 under model gpt-4o-2024-08-06
+usajobs_chatgpt <- readRDS("./data/usajobs_data_chatgpt_FINALTIDY.rds") 
+
+usajobs_chatgpt_tidy <- usajobs_chatgpt %>%
+  mutate(across(c(innovative_tech, emerging_tech, agile_startup_ux, 
+                  use_ai, user_research, stem_job), 
+                # fixing some of the boolean returns: 
+                ~ case_when(.x == "\"yes\"" ~ "true", 
+                            .x == "\"no\"" ~ "false", 
+                            TRUE ~ .x)))
+# grabbing main components: 
+usajobs_summary <- usajobs_chatgpt_tidy %>%
+  # mutate(gs_lvl = paste0(grade_type_code, " ", low_grade, "-", high_grade)) %>%
+  select(subagency, position, minimum_range, maximum_range, description, 
+         openings, job_gpt_name:innovative_score) %>%
+  mutate(innovative_score = as.numeric(innovative_score))
+
+# checking out innovative scores: 
+innov_summary <- usajobs_summary %>%
+  group_by(subagency, innovative_score) %>%
+  summarize(total_announcements = n())
+
+# adding percentages since USACE has the most jobs
+totals <- usajobs_summary %>%
+  group_by(subagency) %>%
+  summarize(total_announcements_posted = n())
+
+# merging: 
+innov_summary_merge <- merge(innov_summary, totals, 
+                             by = "subagency") %>%
+  mutate(pct_jobs = 100*(total_announcements/total_announcements_posted))
+
+innov_plot <- ggplot(innov_summary_merge, aes(x = innovative_score, 
+                          y = subagency, fill = pct_jobs)) + 
+  geom_tile() + 
+  scale_fill_gradientn(colours = cont_palette(3), 
+                         name = "% of Announcements") + 
+  theme_minimal() + 
+  labs(x = "ChatGPT's Innovative Score", y = "")
+
+plotly::ggplotly(innov_plot)
+```
+
+NOAA, USGS, EPA, and USACE once again rank rather high on the percentage of jobs with higher innovation scores. 
+
+## 3.2 What are the characteristics of announcements with high innovation scores? 
+```{r}
+high_innov_score <- usajobs_summary %>%
+  filter(innovative_score >= 6) %>%
+  select(-c(job_gpt_name, innovative_tech, 
+            similar_to_data_steward))
+
+DT::datatable(high_innov_score)
+
+# select job requirements keywords 
+```
+
+## 3.3 What is the mean innovation score for announcements at environmental agencies?
+```{r}
+mean_innov_score <- usajobs_summary %>% 
+  group_by(subagency) %>%
+  mutate(innovative_score = as.numeric(innovative_score)) %>%
+  summarize(mean_innov_score = mean(innovative_score))
+
+mean_innov_score[order(mean_innov_score$mean_innov_score, decreasing = TRUE),]
+```
+
+Consistent with the main trends above, NOAA and USGS have the highest mean innovation scores.
+
+
+## 3.4 How does innovation score compare to minimum salary?
+```{r fig.height = 9, fig.width = 10}
+usajobs_summary_tidy <- usajobs_summary %>%
+  mutate(min_annual_salary = case_when(
+    # assuming 40 hours a week over 52 weeks
+    description == "Per Hour" ~ as.numeric(minimum_range)*40*52,
+    TRUE ~ as.numeric(minimum_range))) %>%
+  mutate(innovative_score = as.numeric(innovative_score)) 
+
+ggplot(usajobs_summary_tidy, aes(x = innovative_score, 
+                                 y = min_annual_salary, 
+                                 color = subagency)) + 
+  geom_jitter(alpha = 0.8, size = 3) + 
+  facet_wrap(~subagency, ncol = 5) + 
+  epic_chart_theme +
+  labs(x = "Innovative Score", y = "Minimum Salary ($)") + 
+  scale_colour_manual(values = cat_palette(10), 
+                      name = "") + 
+  theme(legend.position = "none") 
+```
+
+Generally, as innovation score increases, the minimum salary increases. 
+
+
+## 3.5 How many announcements are most similar to a data steward?
+```{r}
+high_datasteward_score <- usajobs_summary_tidy %>% 
+  filter(similar_to_data_steward >= 8) %>%
+  select(-c(job_gpt_name, innovative_tech, minimum_range, 
+            maximum_range, description)) %>%
+  relocate(min_annual_salary, .after = openings)
+
+DT::datatable(high_datasteward_score)
+```
+
+There are 64 job announcements that had a similarity score of 8 or higher. Most of these jobs appear to be advertised by USACE (14), NOAA (13), or USGS (10), and involve database management and integration. 
+
+## 3.6 What is the mean data steward similarity score for announcements at environmental agencies?
+```{r}
+mean_data_steward <- usajobs_summary %>% 
+  group_by(subagency) %>%
+  mutate(similar_to_data_steward = as.numeric(similar_to_data_steward)) %>%
+  summarize(mean_steward_similarity_score = mean(similar_to_data_steward))
+
+mean_data_steward[order(mean_data_steward$mean_steward_similarity_score, decreasing = TRUE),]
+```
+
+Trends are relatively similar to the innovation score above - both USGS and NOAA have the highest similarity scores, followed by Bureau of Reclamation (probably has a lot of data management positions) and USFWS. 
+
+## 3.7 What does data steward similarity look like when compared to minimum salary?
+```{r fig.height = 9, fig.width = 10}
+ggplot(usajobs_summary_tidy, aes(x = similar_to_data_steward, 
+                                 y = min_annual_salary, 
+                                 color = subagency)) + 
+  geom_jitter(alpha = 0.8, size = 3) + 
+  facet_wrap(~subagency, ncol = 5) + 
+  epic_chart_theme +
+  labs(x = "Similarity Score to Data Steward", y = "Minimum Salary ($)") + 
+  scale_colour_manual(values = cat_palette(10), 
+                      name = "") + 
+  theme(legend.position = "none") 
+```
+
+## 3.8 What kind of programming langaages are agencies specifying as key requirements?
+```{r}
+lang_summary <- usajobs_summary %>%
+  mutate(programming_types = case_when(
+    programming_types == "\"None\"" ~ "none",
+    programming_types == "\"none\"" ~ "none", 
+    TRUE ~ programming_types
+  )) %>%
+  mutate(programming_types = gsub("[^A-Za-z0-9 .+/#,]", "",
+                                  programming_types)) %>%
+  group_by(subagency, programming_types) %>%
+  summarize(total_announcements = n()) %>%
+  filter(!(programming_types == "none"))
+
+DT::datatable(lang_summary)
+```
+
+To start, very few positions appear to have programming languaged noted in key responsibilities. Both NOAA & USACE has jobs in fortran & C++, but the most common languages appear to be Python & R. 
+
+## 3.9 What jobs included emerging or innovative tech, stem, use AI, user research, or mention agile/startup/ux?
+```{r}
+flag_summary <- usajobs_summary %>% 
+  mutate(across(c(innovative_tech, emerging_tech, agile_startup_ux, 
+                  use_ai, user_research, stem_job), 
+                # transferring boolean strings to binary 1/0
+                ~ case_when(.x == "true" ~ 1,
+                            .x == "false" ~ 0), 
+                .names = "{.col}_flag")) %>%
+  pivot_longer(innovative_tech_flag:stem_job_flag) %>%
+  group_by(subagency, name) %>%
+  # grab the mean for each name
+  summarize(mean = round(mean(value), 2)) %>%
+  pivot_wider(., names_from = name, 
+              values_from = mean)
+
+DT::datatable(flag_summary)
+```
+
+In the table above, you're seeing the mean number of jobs that chatGPT flagged for agile/startup/ux, emerging technology, innovative technology, whether it is a STEM jobs, uses AI, and contains user research. NOAA had the highest mean jobs for most of these categories, aside from agile/statup/ux, in which the Bureau of Reclamation had a higher mean by 0.01, and emerging tech where it was tied with USGS. 
+
+## 3.10 How many announcements mention the use of AI?
+```{r}
+use_ai <- usajobs_summary %>% 
+  filter(use_ai == "true") %>%
+  select(-c(job_gpt_name, innovative_tech, 
+            similar_to_data_steward, minimum_range, maximum_range, description))
+
+DT::datatable(use_ai)
+```
+
+Only 14 jobs mentioned the use of AI. Many of these jobs involved developing dashboards and modeling. Most of these jobs involved coding in R, Python, SQL, and C/C++. 
+
+## 3.11 Comparing innovation scores & similarity 
+```{r fig.height = 9, fig.width = 10}
+ggplot(usajobs_summary_tidy, aes(x = innovative_score, 
+                                 y = similar_to_data_steward, 
+                                 color = min_annual_salary, 
+                                 group = subagency)) + 
+  geom_jitter(alpha = 0.8, size = 3) + 
+  epic_chart_theme + 
+  labs(x = "Innovative Score", y = "Similarity to Data Steward") + 
+  facet_wrap(~subagency, ncol = 5) + 
+  scale_colour_gradientn(colours = cont_palette(3), 
+                         name = "Minimum Salary ($)", 
+                         breaks = c(20000, 50000, 80000, 
+                                    100000, 150000)) + 
+  theme(legend.position = "bottom") +
+  guides(color = guide_legend(ncol = 2))
+
+```
+
+Generally, jobs that have high innovative score also tend to be more similar to a data steward. These job announcements also seem to advertise a higher minimum salary, but the ranges appear highly specific to the subagency - for example, the Forest Service, which has the lowest minimum salaries of our subagencies. 
+
+
+# 4.0 Summary csv file
+```{r}
+summary_file <- usajobs_chatgpt_tidy %>%
+  mutate(min_annual_salary = case_when(
+    # assuming 40 hours a week over 52 weeks
+    description == "Per Hour" ~ as.numeric(minimum_range)*40*52,
+    TRUE ~ as.numeric(minimum_range))) %>%
+  mutate(innovative_score = as.numeric(innovative_score)) %>%
+  select(id, subagency, position, min_annual_salary,
+         openings, job_gpt_name:innovative_score)
+
+DT::datatable(summary_file)
+# write.csv(summary_file, "./data/usajobs_enviro_summary.csv")
+
+# adding back series codes: 
+enviro_jobs_series <- enviro_jobs %>%
+  select(id, all_series_code, all_series)
+
+url <- "https://docs.google.com/spreadsheets/d/1tv_xRi-S_Sm9G77xQjGj098oRll2P7cugeiwQGvUL6I/edit?gid=1059849696#gid=1059849696"
+usajobs_summary <- read_sheet(url) 
+
+final <- merge(usajobs_summary, enviro_jobs_series, by = "id") %>%
+  mutate(it_specialist = case_when(
+    grepl("1550|2210|1515|0853", all_series_code) ~ "TRUE", 
+    TRUE ~ "FALSE"
+  ), 
+  openings = as.character(openings))
+
+# write.csv(final, "./data/summary_data_series_codes.csv")
+
+simple_job_codes <- enviro_jobs %>%
+  select(id, subagency, all_series_code, all_series)
+saveRDS(simple_job_codes, "./data/simple_job_codes.rds")
+```
+
+
+
