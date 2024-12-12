@@ -6,13 +6,15 @@ library(tidyverse)
 library(googlesheets4)
 library(aws.s3)
 
-# data: 
-# grabbing latest challenges - there isn't an API, so I had to manually 
-# export the archived and active data from 2023 and 2024 from challenge.gov, 
-# and threw them in a google spreadsheet. 
+# Important note about the raw challenges data:
+# There isn't an API or full raw data download (as far as I can tell), so 
+# the code in section 1 is manually pulling each year and binding them 
+# together. After binding the data, check for duplicates, as some challenges 
+# span multiple years. 
 
-# we can't simply rbind them, since some started in 2022 and archived in 2024, 
-# etc. 
+# If you're interested in simply updating the data from our data dictionary,
+# I recommend downloading the latest data from challenges.gov and binding this
+# updated data to our google spreadsheet (and checking for duplicates).
 
 #### Section 1: ################################################################
 # updating old data with new challenges: 
@@ -100,6 +102,8 @@ fed_challenges <- bind_rows(old_chal, updated_challenges_tidy) %>%
 # challenges data viz for blog: 
 ###############################################################################
 # pulling in URL from Cole's analysis: 
+# This file is the output of challenges_analysis.py - run the python code 
+# to remake these figures!
 URL <- "https://docs.google.com/spreadsheets/d/1TzIFs04m4wbns5RuqRS0knWxtEFRRm3VTPQzPCuT1lg/edit?gid=1806015268#gid=1806015268"
 challenges_summary <- read_sheet(URL) %>%
   select(...8:other_trend...14) %>%

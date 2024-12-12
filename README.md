@@ -11,13 +11,13 @@ you to run this collection of files without amazon web services.
 
 ### challenges 
 Code for investigating the use of Challenges/Prize Competitions by federal agencies with a particular focus on technology-oriented challenges. 
-* Section 1 of `challenge_innovation_indicators_figures.R` in `innovation_indicator_website_code` will pull new and archived Challenges data.
+* Section 1 of `challenge_innovation_indicators_figures.R` in `innovation_indicator_website_code` will help pull new and archived Challenges data. Note some of these steps require manually downloading data. 
 * Code in `challenges_analysis.py` will clean, analyze, and output data for use.
 * Section 2 of `challenge_innovation_indicators_figures.R` produces visualizations from the cleaned data.
 
 ### hiring
 Code for investigating federal hiring actions for innovative talent at environmental agencies/bureaus.
-* Use the files in `hiring_analysis_code` to pull data from USAJobs and perform the qualitative analysis using ChatGPT.
+* Use the files in `hiring_analysis_code` to pull our latest dataset from USAJobs and perform the qualitative analysis using ChatGPT.
 * Run that data through `usaj_analysis.py` to pull out the core statistics used on the website.
 * Run `hiring_innovation_indicators_figures` in `innovation_indicator_website_code` to produce the visualizations. 
 
@@ -27,8 +27,7 @@ Code for investigating the use of open source software by environmental agencies
 
 ### staffing
 Code for investigating technology talent staffing trends at environmental agencies.
-* Use the files in `functions` to download and assemble the OPM data cubes.
-* Follow the steps outlined in `tech_capacity_analysis.Rmd` to clean and analyze the data.
+* Follow the steps outlined in `tech_capacity_analysis.Rmd` to download the OPM staffing cubes, clean and analyze the data.
 * Use `staffing_innovation_indicator_figures.R` in `innovation_indicator_website_code` to recreate the visualizations.
 
 ## Attributions and license:
