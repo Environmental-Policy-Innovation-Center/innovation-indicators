@@ -105,14 +105,33 @@ agy_top_five_names <- merge(agy_top_five, code_keys,
   # this is the only series that didn't match to a name in our keys dataset: 
   mutate(all_series = case_when(is.na(all_series) ~ "Agricultural Engineering", 
                                 TRUE ~ all_series)) %>%
-  mutate(all_series = case_when(all_series == "Information Technology Management" ~ "*Information Technology Management", 
-                                TRUE ~ all_series))
+  mutate(all_series = case_when(all_series == "Information Technology Management" ~ "*IT Management", 
+                                TRUE ~ all_series),
+         all_series = case_when(all_series == "Archeology" ~ "Archaeology", 
+                                TRUE ~ all_series),
+         all_series = case_when(all_series == "General Natural Resources Management And Biological Sciences" ~ "NRM & Bio Sciences", 
+                                TRUE ~ all_series)) %>%
+  mutate(subagency = case_when(subagency == "U.S. Army Corps Of Engineers" ~ "USACE", 
+                               subagency == "Environmental Protection Agency" ~ "EPA", 
+                               subagency == "Natural Resources Conservation Service" ~ "NRCS", 
+                               subagency == "Forest Service" ~ "FS", 
+                               subagency == "National Oceanic And Atmospheric Administration" ~ "NOAA", 
+                               subagency == "National Park Service" ~ "NPS", 
+                               subagency == "U.S. Fish And Wildlife Service" ~ "FWS", 
+                               subagency == "Bureau Of Land Management" ~ "BLM", 
+                               subagency == "Geological Survey" ~ "USGS", 
+                               subagency == "Bureau Of Reclamation" ~ "BOR")) %>%
+  mutate(`Total Listings` = paste0( "Total Listings: ", totals), 
+         `Job Series` = all_series)
+
+
 agy_summary_plot <- ggplot(agy_top_five_names, 
                            aes(x = totals, 
                                y = reorder(subagency, totals), 
-                               color = all_series, 
-                               fill = all_series)) + 
-  geom_bar(stat = "identity", position = "stack", alpha = 0.75) + 
+                               color = `Job Series`, 
+                               fill = `Job Series`)) + 
+  geom_bar(aes(text = `Total Listings`, color = `Job Series`), 
+           stat = "identity", position = "stack", alpha = 0.75) + 
   labs(x = "Times Job Series Listed", y = "") + 
   theme_minimal() + 
   scale_colour_manual(values = cat_palette(31), 
@@ -131,7 +150,9 @@ agy_summary_plot <- ggplot(agy_top_five_names,
                                                    b = 0, l = 0)), 
         axis.title.y = element_text(margin = margin(t = 0, r = 10, 
                                                     b = 0, l = 0)))
-agy_top_five_plot <- plotly::ggplotly(agy_summary_plot)
+agy_top_five_plot <- plotly::ggplotly(agy_summary_plot, tooltip = c("text", 
+                                                                    "fill"))
+agy_top_five_plot
 ###############################################################################
 # saving this as an html widget and putting it on aws: 
 htmlwidgets::saveWidget(partial_bundle(agy_top_five_plot) %>%
