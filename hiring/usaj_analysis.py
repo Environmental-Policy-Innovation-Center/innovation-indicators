@@ -7,7 +7,7 @@ AGENCIES = ['Bureau Of Reclamation', 'National Park Service',
        'Bureau Of Land Management', 'U.S. Fish And Wildlife Service',
        'Geological Survey', 'Environmental Protection Agency']
 
-def clean_data(raw_data='usaj_summary.csv'):
+def clean_data(raw_data='..\\..\\usaj_summary.csv'):
     '''
     Read-in and perform generic high-level cleaning.
 
@@ -77,7 +77,7 @@ def core_stats():
     # Define and prepare working variables
     dta = clean_data()
     job_counts = num_openings(dta)
-    workforce = pd.read_csv('workforce.csv')
+    workforce = pd.read_csv("..\\..\\workforce.csv")
     stats = {}
 
     workforce = workforce[workforce.year == 2024][['name', 'total_workforce']]
@@ -138,4 +138,4 @@ def core_stats():
     stats_df = pd.DataFrame.from_dict(stats, orient='index')
     stats_df.to_csv('usajobs_stats.csv')
 
-    return stats_df
+    return stats_df, dta
