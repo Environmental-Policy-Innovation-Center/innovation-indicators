@@ -17,7 +17,7 @@ showtext::showtext_auto()
 epic_chart_theme <- theme_minimal() + 
   theme(legend.position = "right", 
         text = element_text(size = 13, family = "Lato"), 
-        legend.text = element_text(size = 50, family = "Lato"), 
+        legend.text = element_text(size = 60, family = "Lato"), 
         legend.title = element_text(size = 11, family = "Lato"), 
         axis.text.x = element_text(margin = margin(t = 10, r = 0, 
                                                    b = 0, l = 0)), 
@@ -175,6 +175,7 @@ expected_tech_figure <- ggplot(expected_tech, aes(x = value, y = subagency,
                     name = "") +
   scale_color_manual(values = cat_palette(2), 
                      name = "") +
-  theme(text=element_text(size=80))
+  theme(text=element_text(size=80),
+        axis.text.y = element_text(size = 90))
 
-# ggsave("./results/expected_tech.png", expected_tech_figure, dpi = 600)
+# ggsave("./results/expected_tech.png", expected_tech_figure, dpi = 600, bg = "white")

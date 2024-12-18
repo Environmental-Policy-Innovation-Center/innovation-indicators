@@ -120,7 +120,7 @@ showtext::showtext_auto()
 epic_chart_theme <- theme_minimal() + 
   theme(legend.position = "right", 
         text = element_text(size = 13, family = "Lato"), 
-        legend.text = element_text(size = 50, family = "Lato"), 
+        legend.text = element_text(size = 70, family = "Lato"), 
         legend.title = element_text(size = 11, family = "Lato"), 
         axis.text.x = element_text(margin = margin(t = 10, r = 0, 
                                                    b = 0, l = 0)), 
@@ -147,14 +147,14 @@ challenges_totals <- ggplot(totals, aes(x = year, y = value,
   geom_line(linewidth = 2, alpha = 0.75) + 
   geom_point(size = 3, alpha = 0.8) + 
   epic_chart_theme + 
-  scale_colour_manual(values = cat_palette(2), 
+  scale_colour_manual(values = c("#4EA324","#172F60"), 
                       name = "") + 
   theme(legend.position = "bottom", 
         axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1, size = 50)) + 
   labs(x = "Challenge Start Year", y = "Total Challenges/Agency per Year") + 
-  theme(text=element_text(size=80))
+  theme(text=element_text(size=90))
 
-# ggsave("./results/challenge_totals.png", challenges_totals, dpi = 600)
+# ggsave("./results/challenge_totals.png", challenges_totals, dpi = 600, bg = "white")
 
 
 ## plotting tech challenges: 
@@ -171,12 +171,13 @@ challenges_tech <- ggplot(tech, aes(x = year_tech, y = value,
   geom_line(linewidth = 2, alpha = 0.75) + 
   geom_point(size = 3, alpha = 0.8) + 
   epic_chart_theme + 
-  scale_colour_manual(values = cat_palette(2), 
+  scale_colour_manual(values = c("#4EA324","#172F60"), 
                       name = "") + 
   theme(legend.position = "bottom", 
         axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) + 
   labs(x = "Challenge Start Year", y = "Tech Challenges/Agency per Year")+ 
-  theme(text=element_text(size=80))
+  theme(text=element_text(size=90))
+challenges_tech
 
-# ggsave("./results/challenge_tech.png", challenges_tech, dpi = 600)
+# ggsave("./results/challenge_tech.png", challenges_tech, dpi = 600, bg = "white")
 
