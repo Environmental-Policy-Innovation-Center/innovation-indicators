@@ -6,6 +6,8 @@ library(plotly)
 library(htmlwidgets)
 library(aws.s3)
 library(rvest)
+library(googlesheets4)
+
 # themes and palettes: 
 sysfonts::font_add_google("Lato")
 showtext::showtext_auto()
@@ -45,10 +47,14 @@ staffing_long <- pivot_longer(staffing, cols = c(ratio_tech, `tech_%`),
   # keeping agency names consistent: 
   mutate(name_tidy = case_when(name %in% c("Army Corps Of Engineers", 
                                            "Fish And Wildlife Service") ~ paste0("U.S. ", name), 
-                               TRUE ~ name))
+                               TRUE ~ name)) %>%
+  rename(Agency = name_tidy) %>%
+  rename(Year = year) %>%
+  mutate(Value = round(value, 3)) 
 
-staffing_plot <- ggplot(staffing_long, aes(x = year, y = value, 
-                                          color = name_tidy)) + 
+
+staffing_plot <- ggplot(staffing_long, aes(x = Year, y = Value, 
+                                          color = Agency)) + 
   geom_line(linewidth = 2, alpha = 0.75) + 
   geom_point(size = 3, alpha = 0.8) + 
   epic_chart_theme + 
@@ -57,9 +63,9 @@ staffing_plot <- ggplot(staffing_long, aes(x = year, y = value,
                       name = "") + 
   theme_minimal() + 
   theme(legend.position = "right", 
-        text = element_text(size = 13), 
-        legend.text = element_text(size = 10), 
-        legend.title = element_text(size = 11), 
+        text = element_text(size = 18), 
+        legend.text = element_text(size = 15), 
+        legend.title = element_text(size = 16), 
         axis.text.x = element_text(margin = margin(t = 10, r = 0, 
                                                    b = 0, l = 0)), 
         axis.title.x = element_text(margin = margin(t = 10, r = 0, 
@@ -68,10 +74,12 @@ staffing_plot <- ggplot(staffing_long, aes(x = year, y = value,
                                                    b = 0, l = 0)), 
         axis.title.y = element_text(margin = margin(t = 0, r = 10, 
                                                     b = 0, l = 0))) +
-  labs(x = "Year", y = "") + 
-  xlim(2012, 2024)
+  xlim(2012, 2024) + 
+  labs(x = "Year", y = "")
 
-staffing_trends_innov_indicators <- plotly::ggplotly(staffing_plot)
+staffing_trends_innov_indicators <- plotly::ggplotly(staffing_plot)%>% 
+  layout(legend = list(title = list(text = "Agency Tech Staffing: 2013-2024 <br />")))
+staffing_trends_innov_indicators
 
 ###############################################################################
 # saving this as an html widget and putting it on aws: 
@@ -82,10 +90,10 @@ htmlwidgets::saveWidget(partial_bundle(staffing_trends_innov_indicators) %>%
                                  yaxis = list(fixedrange = TRUE))%>%
                           layout(plot_bgcolor='transparent') %>%
                           layout(paper_bgcolor='transparent'),
-                        "results/innov_indicators_figures/staffing_trends.html")
+                        "results/staffing_trends.html")
 
 # put_object(
-#   file = file.path("results/innov_indicators_figures/staffing_trends.html"),
+#   file = file.path("results/staffing_trends.html"),
 #   object = "/innovation-indicators/github/staffing_trends.html",
 #   bucket = "tech-team-data"
 # )
