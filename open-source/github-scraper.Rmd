@@ -35,7 +35,7 @@ library(aws.s3)
 library(plotly)
 library(htmlwidgets)
 
-github_token <- "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"
+github_token <- "YOUR TOKEN"
 
 ```
 
@@ -237,7 +237,7 @@ noaa <- noaa %>% mutate(agencyList = "National Oceanic and Atmospheric Administr
 non_noaa_repos_pull <- get_repos_for_agencies(agencies, github_token) 
 ## NOAA
 ## Note that some NOAA links are dead - might have delete repositories from list
-noaa_repos_pull <- get_repos_for_agencies(noaa %>% slice (21:21), github_token)
+noaa_repos_pull <- get_repos_for_agencies(noaa, github_token)
 
 
 
