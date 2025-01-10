@@ -35,7 +35,7 @@ library(aws.s3)
 library(plotly)
 library(htmlwidgets)
 
-github_token <- "YOUR GITHUB TOKEN"
+github_token <- "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"
 
 ```
 
@@ -77,7 +77,7 @@ get_repo_details <- function(org_name, agency, github_token) {
   base_url <- paste0("https://api.github.com/orgs/", org_name, "/repos?per_page=100")
   
   # Authentication with github_token
-  headers <- add_headers(Authorization = paste("github_token", github_token))
+  headers <- add_headers(Authorization = paste("token", github_token))
   
   # Get all repositories (with pagination - max of 100 per page)
   repos <- get_paginated_data(base_url, headers)
@@ -193,7 +193,7 @@ get_repos_for_agencies <- function(agencylist, github_token) {
     repo_info <- get_repo_details(github_org, agency, github_token)
   
     # save out for NOAA repos in event of loop failure or rate limit - comment out to avoid saving
-    if(agency = "National Oceanic and Atmospheric Administration")
+    if(agency == "National Oceanic and Atmospheric Administration")
     {
     write.csv(repo_info, paste0("results/noaa_organizations/", github_org, "_data.csv"), row.names = FALSE)
     }
@@ -206,7 +206,7 @@ get_repos_for_agencies <- function(agencylist, github_token) {
   
   # Combine all repository info into one data frame (if desired)
   combined_repo_info <- do.call(rbind, all_repo_info)
-  
+  print(combined_repo_info)
   return(combined_repo_info)
   
  # Uncomment to save out file of single agency
@@ -218,22 +218,26 @@ get_repos_for_agencies <- function(agencylist, github_token) {
 ## Pulling it all together (need to handle NOAA seperetly as they have a multi-organizational structure)
 ```{r}
 ## Research set environmental agencies 
-agencies <- data.frame(agencylist <- c("Forest Service","Natural Resources Conservation Service","U.S. Fish and Wildlife Service","National Park Service","U.S. Geological Survey","Bureau of Land Management","Environmental Protection Agency", "Bureau of Reclamation", "U.S. Army Corps Of Engineers"),github_org = c("USDAForestService", "USDA-NRCS", 
+agencies <- data.frame(agencylist <- c("Forest Service","Natural Resources Conservation Service","U.S. Fish and Wildlife Service","National Park Service","U.S. Geological Survey","Bureau of Land Management","Environmental Protection Agency", "Bureau of Reclamation", "U.S. Army Corps Of Engineers"),
+                       
+                  github_org = c("USDAForestService", "USDA-NRCS", 
                  "USFWS", "nationalparkservice", "USGS", 
                  "doi-blm", "usepa", "doi-bor", 
                  "USACE"))
 
 ## NOAA 
-noaa <- data.frame(github_org = c("NOAA-PMEL","NOAA-CSL","NOAA-GSL","NOAA-EMC","NOAA-PSL","NOAA-ERD","NOAA-GFDL","NOAA-EDAB","NOAA-AOML","NOAA-GLERL","NOAA-OCS","NOAA-OCM","nmfs-fish-tools","NOAA-MDL","NOAA-OWP","NOAA-Fisheries-OST","NOAA-SWPC","NOAA-CO-OPS","NOAA-NCEI","NOAA-PIFSC","NOAA-NGS","MSE-NCCOS-NOAAE","NOAA-GML","HABF-SDI-NCCOS-NOAA","NOAA-Omics","noaa-ncai"))
+noaa <- data.frame(github_org = c("NOAA-PMEL","NOAA-CSL","NOAA-GSL","NOAA-EMC","NOAA-PSL","NOAA-ERD","NOAA-GFDL","NOAA-EDAB","NOAA-AOML","NOAA-GLERL","NOAA-OCS","NOAA-OCM","nmfs-fish-tools","NOAA-MDL","NOAA-OWP","NOAA-SWPC","NOAA-CO-OPS","NOAA-PIFSC","NOAA-NGS","MSE-NCCOS-NOAA","NOAA-GML","HABF-SDI-NCCOS-NOAA","NOAA-Omics","noaa-ncai"))
 noaa <- noaa %>% mutate(agencyList = "National Oceanic and Atmospheric Administration")
 
 # Fetch repository details for all agencies (note this usually needs to be done in parts to avoid rate limit issues (5,000 requests per hour))
+## Tip: Follow the console output to see what agency last fully ran. Use '%>% slice (n_of_last_agency:n_agencies)' e.g.
+## non_noaa_repos_pull <- get_repos_for_agencies(agencies %>% slice (6:10), github_token) 
 # Save out in functions
 ## Key Agencies
 non_noaa_repos_pull <- get_repos_for_agencies(agencies, github_token) 
 ## NOAA
 ## Note that some NOAA links are dead - might have delete repositories from list
-noaa_repos_pull <- get_repos_for_agencies(noaa, github_token)
+noaa_repos_pull <- get_repos_for_agencies(noaa %>% slice (21:21), github_token)
 
 
 
@@ -263,7 +267,7 @@ write.csv(repo_details_final_fy22_fy24, paste0("results/agency_github_data_clean
 ```
 
 
-## Summary Stats and Langauges Data
+## Innovation Indicator and Langauges Data
 ```{r}
 ## Pulling in agency spending data stored in google sheets - gathered from https://www.itdashboard.gov/  
 
@@ -275,13 +279,10 @@ agency_spending_clean <- agency_spending_raw %>%
                          select(sub_agency, total_funding)%>%
                          mutate(total_funding = total_funding)
 
-
-
 ## FY 22 START March 28, 2021
 ## FY 24 END September 30, 2024
 ## Basic summary of counts ## 
 numeric_summary <- repo_details_final_fy22_fy24 %>%
-  filter(last_commit_date < mdy("09-30-2024") & last_commit_date > mdy("03-28-2021"))%>%
   rename(sub_agency = agency)%>%
   group_by(sub_agency) %>%
   summarize(
@@ -300,7 +301,7 @@ write.csv(github_innovation, paste0("results/open_source_indicator_",Sys.Date(),
 ## Summary of languages ##
 language_summary_long <- repo_details_final_fy22_fy24 %>%
     separate_rows(languages, sep = ", ") %>%
-    group_by(sub_agency, repository, languages) %>%
+    group_by(agency, repo_url, languages) %>%
     summarize(language_count = 1, .groups = 'drop') %>%  # Ensure unique language per repository
     ungroup()
 
@@ -310,8 +311,8 @@ language_summary_wide <- language_summary_long %>%
 
 # Summarize by agency
 language_summary <- language_summary_wide %>%
-    select(-repository) %>%
-    group_by(sub_agency) %>%
+    select(-repo_url) %>%
+    group_by(agency) %>%
     summarize(across(everything(), sum, na.rm = TRUE))%>%
     select(-c("NA"))
 
@@ -327,9 +328,11 @@ sub_agency_df <- data.frame(
   sub_agency_abbrev = c("FS","NRCS","FWS","NPS","USGS","BLM","EPA","BOR", "USACE","NOAA"))
 
 no_lang <- c('HTML', 'Makefile', 'Dockerfile', 'Jupyter Notebook','Batchfile', 'M4','Procfile', 'Vue', 'Smarty', 'CMake',
-            'JavaScript', 'CSS',"SCSS",'Shell', 'TeX', "Inno Setup","PowerShell", "Roff","Rich Text Format","Jinja","BitBake","ASP.NET","Pug","QMake","Stylus", "Less", "Mako", "SWIG", "Twig", "EJS", "PEG.js", "Handlebars", "Module Management System", "LLVM", "FreeMarker")
+            'JavaScript', 'CSS',"SCSS",'Shell', 'TeX', "Inno Setup","PowerShell", "Roff","Rich Text Format","Jinja","BitBake","ASP.NET","Pug","QMake","Stylus", "Less", "Mako", "SWIG", "Twig", "EJS", "Handlebars", "Module Management System", "LLVM", "FreeMarker")
+
 
 languages_bar_agency_prep <- language_summary %>%
+          rename(sub_agency = agency)%>%
           left_join(sub_agency_df)%>%
           filter(!is.na(sub_agency_abbrev))%>%
           select(-c(no_lang))%>%
@@ -353,26 +356,28 @@ languages_bar_agency_5 <- languages_bar_agency_prep %>%
                           ungroup()%>%
                           filter(count > 0)%>%
                           rbind(.,languages_bar_agency_other)
-
+#write.csv(languages_bar_agency_5, "results/languages_graph_data.csv", row.names = FALSE)
 sysfonts::font_add_google("Lato")
 showtext::showtext_auto()
 epic_chart_theme <- theme_minimal() + 
   theme(legend.position = "right", 
        # text = element_text(size = 13, family = "Lato"), 
-        legend.text = element_text(size = 10, family = "Lato"), 
-        legend.title = element_text(size = 11, family = "Lato"), 
-        axis.text.x = element_text(size = 12, margin = margin(t = 10, r = 0, 
+        legend.text = element_text(size = 24, family = "Lato"), 
+        legend.title = element_text(size = 24, family = "Lato"), 
+        axis.title = element_text(size = 24, family = "Lato"), 
+        axis.text.x = element_text(angle = 45, size = 24, margin = margin(t = 10, r = 0, 
                                                    b = 0, l = 0), face = "bold"), 
-        axis.title.x = element_text(margin = margin(t = 10, r = 0, 
+        
+        axis.title.x = element_text(size = 16, margin = margin(t = 10, r = 0, 
                                                     b = 0, l = 0)), 
-        axis.text.y = element_text(margin = margin(t = 0, r = 10, 
+        axis.text.y = element_text(size = 16, margin = margin(t = 0, r = 10, 
                                                    b = 0, l = 0)), 
-        axis.title.y = element_text(margin = margin(t = 0, r = 10, 
-                                                    b = 0, l = 0))) 
-# Define the initial colors
-cat_palette_pastel <- colorRampPalette(c("#526489", "#B077B2", 
-                                         "#82AB6E", "#E4BE7C", 
-                                         "#b15712", "#A3D9A5"))
+        axis.title.y = element_text(size = 24, margin = margin(t = 0, r = 10, 
+                                                    b = 0, l = 0), , face = "bold")) 
+
+cat_palette_pastel <- colorRampPalette(c("#172f60","#1054a8",
+"#791a7b","#de9d29",
+"#b15712","#4ea324"))
 # Generate a palette of 16 colors
 expanded_palette <- cat_palette_pastel(16)
 
@@ -383,9 +388,11 @@ sorted_data <- languages_bar_agency_5 %>%
 
 # Reorder the languages factor based on the total counts
 languages_bar_agency_5 <- languages_bar_agency_5 %>%
-    mutate(languages = factor(languages, levels = c(sorted_data$languages[sorted_data$languages != "Other"], "Other")))
+    mutate(languages = factor(languages, levels = c(sorted_data$languages[sorted_data$languages != "Other"], "Other")))%>%
+  group_by(sub_agency_abbrev) 
 
-set.seed(124) # Optional for reproducibility
+
+set.seed(11) # Optional for reproducibility
 shuffled_palette <- sample(expanded_palette)
 
 # Create a named palette where "Other" is explicitly gray
@@ -394,17 +401,25 @@ final_palette <- c(setNames(shuffled_palette[1:(length(language_names) - 1)], la
                    "Other" = "grey")
 
 # Plot with sorted legend
-ggplot(languages_bar_agency_5, aes(fill = languages, y = count, x = sub_agency_abbrev)) +
+bar_plot <- ggplot(languages_bar_agency_5, aes(fill = languages, y = count, x = sub_agency_abbrev)) +
   geom_bar(position = "fill", stat = "identity", color = "black", size = 0.1) +
   scale_fill_manual(values = final_palette) +
   scale_y_continuous(labels = scales::percent) +
-  xlab("Agency")+
-  ylab("Percent")+
+  xlab("")+
+  ylab("Percent of Repositories")+
   epic_chart_theme
 
+
+ggsave("results/plots/github_bar_plot.jpeg", plot = bar_plot, units = "cm", width = 15, height = 10, dpi = 600)
+
 ```
+## Table Data 
+```{r}
+table_data <- github_innovation %>%
+              select(sub_agency,num_repos,num_contributors,num_commits,repo_per_million)%>%
+              mutate(repo_per_million = round(repo_per_million, 3))
 
-
+```
 ## language heat map (unpublished)
 ```{r}
 ## reading in raw data 
@@ -474,6 +489,10 @@ put_object(
   multipart = TRUE               # Handle larger files if needed
 )
 ```
+
+
+
+
 
 
 
