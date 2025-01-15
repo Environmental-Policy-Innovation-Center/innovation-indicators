@@ -31,7 +31,7 @@ Code for investigating technology talent staffing trends at environmental agenci
 * Use `staffing_innovation_indicator_figures.R` in `innovation_indicator_website_code` to recreate the visualizations.
 
 ## Attributions and license:
-Developed in partnership with the [Patrick J McGovern Foundation]([link](https://www.mcgovern.org/)) by [Environmental Policy Innovation Center](https://www.policyinnovation.org/).
+Developed in partnership with the [Patrick J McGovern Foundation](https://www.mcgovern.org/) by the [Environmental Policy Innovation Center](https://www.policyinnovation.org/).
 EPIC makes no assurances to the accuracy of the data. If you have any feedback or would like to propose an additional indicator, 
 please reach out to Cole von Glahn at cvonglahn@policyinnovation.org. All underlying code, methods, and data are available under a Creative Commons License. 
 
