@@ -120,7 +120,7 @@ showtext::showtext_auto()
 epic_chart_theme <- theme_minimal() + 
   theme(legend.position = "right", 
         text = element_text(size = 13, family = "Lato"), 
-        legend.text = element_text(size = 110, family = "Lato"), 
+        legend.text = element_text(size = 130, family = "Lato"), 
         legend.title = element_text(size = 11, family = "Lato"), 
         axis.text.x = element_text(margin = margin(t = 10, r = 0, 
                                                    b = 0, l = 0)), 
@@ -152,12 +152,12 @@ challenges_totals <- ggplot(totals, aes(x = year, y = value,
   theme(legend.position = "bottom", 
         axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1, size = 50)) + 
   labs(x = "Challenge Start Year", y = "Total Challenges/Agency per Year") + 
-  theme(text=element_text(size=120),
-        axis.text.x = element_text(size = 110), 
-        axis.text.y = element_text(size = 110))
+  theme(text=element_text(size=150),
+        axis.text.x = element_text(size = 130), 
+        axis.text.y = element_text(size = 130))
 challenges_totals
 
-# ggsave("./results/challenge_totals.png", challenges_totals, dpi = 600, bg = "white")
+ggsave("./results/challenge_totals.png", challenges_totals, dpi = 600, bg = "white")
 
 
 ## plotting tech challenges: 
@@ -179,10 +179,10 @@ challenges_tech <- ggplot(tech, aes(x = year_tech, y = value,
   theme(legend.position = "bottom", 
         axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) + 
   labs(x = "Challenge Start Year", y = "Tech Challenges/Agency per Year")+ 
-  theme(text=element_text(size=120),
-        axis.text.x = element_text(size = 110), 
-        axis.text.y = element_text(size = 110))
+  theme(text=element_text(size=150),
+        axis.text.x = element_text(size = 130), 
+        axis.text.y = element_text(size = 130))
 challenges_tech
 
-# ggsave("./results/challenge_tech.png", challenges_tech, dpi = 600, bg = "white")
+ggsave("./results/challenge_tech.png", challenges_tech, dpi = 600, bg = "white")
 
