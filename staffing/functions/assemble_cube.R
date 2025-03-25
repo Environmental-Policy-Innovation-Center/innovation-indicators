@@ -30,6 +30,13 @@ assemble_cube <- function(parent_folder = "./data/",
     agency_i_path <- paste0(folder_i_path, "/", "DTagy.txt")
     los_i_path <- paste0(folder_i_path, "/", "DTloslvl.txt")
     
+    # for some reason, the 2024 cube has fact data from 2024
+    if(length(cube_data_file) > 1){
+      cube_data_file <- cube_data_file[grepl("FACTDATA_MAR2024.TXT", cube_data_file)]
+    } else {
+      cube_data_file <- cube_data_file
+    }
+    
     # reading center of cube: 
     cube_data <- read.table(cube_data_file, sep = ",", 
                             header = TRUE, fill = TRUE) %>%

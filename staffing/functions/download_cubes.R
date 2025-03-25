@@ -15,24 +15,28 @@
 #             often June, March, December, and September. 
 # 
 # outputs: a folder containing all downloaded employment cubes. 
-download_cubes <- function(url = "https://www.opm.gov/data/datasets/Index.aspx?tag=FedScope", 
-                           dest_folder = "./data/test/", 
-                           up_to_year = 2013, 
-                           month = "March"){
-  
-  # TODO: doesn't grab the first 2023 cube for some reason. I think it's because 
-  # it's missing an HTML tag 
+# NOTE - this function now queries the entire opm index website, since filtering 
+# the data for fedscope beforehand missed cubes for years past 2022 since they
+# are missing an html tag
+download_cubes <- function(url = "https://www.opm.gov/data/datasets/Index.aspx", 
+                                 dest_folder = "./data/test/", 
+                                 up_to_year = 2013, 
+                                 month = "March"){
   
   # read the fedscope table from opm: 
   opm <- url %>% 
     read_html() %>%
     html_nodes("table") %>%
-    html_table(fill = T) %>%
+    html_table(fill = T)
+  # as.data.frame()
+  # we only want the second list entry 
+  opm <- opm[[2]] %>%
     as.data.frame()
   
   # just grab the lines with w/ zipped files:
   downloads <- opm[nchar(opm$Downloads) > 0, ]
   # just grab the employment cubes: 
+  downloads <- downloads %>% filter(grepl("Cube|Call", downloads$`Data Set`))
   
   # grab the fedscope zipped folder links: 
   page <- xml2::read_html(url)
@@ -43,19 +47,20 @@ download_cubes <- function(url = "https://www.opm.gov/data/datasets/Index.aspx?t
   links <- paste0("https://www.opm.gov", links)
   
   # connecting zipper folder links with the correct employment cube: 
-  fedscope_zipped <- cbind(downloads, links) 
-  emp_cubes <- fedscope_zipped[grepl("Employment Cube", fedscope_zipped$Data.Set),]
+  fedscope_zipped <- cbind(downloads, links)  %>%
+    janitor::clean_names()
+  emp_cubes <- fedscope_zipped[grepl("Employment Cube", fedscope_zipped$data_set),]
   
   # filtering before year & month specified: 
   emp_cubes <- emp_cubes[grepl(rebus::number_range(up_to_year, year(Sys.Date())), 
-                  emp_cubes$Data.Set),]
-  emp_cubes <- emp_cubes[grepl(month, emp_cubes$Data.Set),]
+                               emp_cubes$data_set),]
+  emp_cubes <- emp_cubes[grepl(month, emp_cubes$data_set),]
   
   # looping through and adding employment cubes to a folder: 
   for(i in 1:nrow(emp_cubes)){
-    message("downloading", emp_cubes[i,]$Data.Set)
+    message("downloading", emp_cubes[i,]$data_set)
     link_i <- emp_cubes[i,]$links
-    file_loc <- paste0(dest_folder, emp_cubes[i,]$Data.Set)
+    file_loc <- paste0(dest_folder, emp_cubes[i,]$data_set)
     # trimming white space
     file_loc <- gsub(" ", "", file_loc)
     download.file(link_i, 
