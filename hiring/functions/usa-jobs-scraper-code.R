@@ -3,11 +3,16 @@ library(httr)
 library(jsonlite)
 library(tidyverse)
 library(aws.s3)
-source("/Users/emmalitsai/policy-tech-sprints/enviro-hiring-trends/functions/grab-keyword-data.R")
+source("./functions/grab-keyword-data.R")
 
+# NOTE - this has been migrated to an AWS worker! 
 # for logs: 
 print("I'm running!")
 
+# add your keys
+host <- ""
+useragent <- ""
+authkey <- ""
 
 # checking each keyword: 
 data_jobs <- grab_keyword_data(keywords = "Data", results_per_page = 100)
@@ -18,14 +23,14 @@ prod_manager_jobs <- grab_keyword_data(keywords = "Product", results_per_page = 
 gis_jobs <- grab_keyword_data(keywords = "Geospatial", results_per_page = 10)
 stewards_jobs <- grab_keyword_data(keywords = "Steward", results_per_page = 100)
 innov_jobs <- grab_keyword_data(keywords = "Innovation", results_per_page = 100)
-# added below keywords for FAS folks - starting Sept 26th 2025 
+# added below keywords for FAS folks - starting Sept 26th 2024
 permit_jobs <- grab_keyword_data(keywords = "Permit", results_per_page = 10)
 nepa_jobs <- grab_keyword_data(keywords = "NEPA", results_per_page = 10)
-# added below keywords - starting Oct 1st 2025
+# added below keywords - starting Oct 1st 2024
 enviro_review_jobs <- grab_keyword_data(keywords = "Environmental+Review", results_per_page = 10)
 
 
-# binding!
+# binding! 
 all_searched_jobs <- bind_rows(data_jobs, tech_jobs, software_jobs, 
                                programming_jobs, prod_manager_jobs, 
                                gis_jobs, stewards_jobs, innov_jobs, 
@@ -33,6 +38,12 @@ all_searched_jobs <- bind_rows(data_jobs, tech_jobs, software_jobs,
 
 
 # seeing which jobs matched to multiple keywords:
+# Note: there may be two identical entries with the same object_id, and this will  
+# paste the same keyword together in a single row in our data frame. I think 
+# it's reasonable to assume they're duplicates. 
+# Object_ids CAN repeat, but from looking at instances where this happens 
+# (rare, ~5 on March 25th, 2025), the data changed for the job. In our dataframe, 
+# they become two different rows. 
 id_keywords <- all_searched_jobs %>%
   group_by(matched_object_id) %>%
   summarize(all_keywords = paste(keyword, collapse = ", "))
@@ -50,8 +61,8 @@ all_unique_jobs_keys <- all_searched_jobs_keys %>%
 # saveRDS(all_unique_jobs_keys, file = paste0("/Users/emmalitsai/policy-tech-sprints/enviro-hiring-trends/data/usajobs_data-", Sys.time(), ".rds"))
 
 # grabbing og data pull: 
-usajobs_old <- aws.s3::s3read_using(readRDS, 
-                                    object = "s3://tech-team-data/enviro-hiring-trends/data/usajobs_data.rds")
+usajobs_old <- aws.s3::s3read_using(readRDS,
+                                    object = "s3://tech-team-data/enviro-hiring-trends/worker-data/usajobs_data_AWSWORKER.rds")
 
 
 # which jobs are new? 
@@ -62,15 +73,15 @@ usajobs_data_actually_new <- all_unique_jobs_keys %>%
 updated_usajobs_data <- bind_rows(usajobs_old, usajobs_data_actually_new) # 9744 in total
 
 # save this locally
-file_name <- paste0("/Users/emmalitsai/policy-tech-sprints/enviro-hiring-trends/data/usajobs_data-", Sys.Date(), ".rds")
+file_name <- paste0("./data/usajobs_data-", Sys.Date(), ".rds")
 saveRDS(updated_usajobs_data, file = file_name)
 
 # overwrite existing file in aws: 
-put_object(
-  file = file_name,
-  object = "/enviro-hiring-trends/data/usajobs_data.rds",
-  bucket = "tech-team-data",
-)
+# put_object(
+#   file = file_name,
+#   object = "/enviro-hiring-trends/data/usajobs_data.rds",
+#   bucket = "tech-team-data",
+# )
 
 
 # old testing code to prove that this works: 
