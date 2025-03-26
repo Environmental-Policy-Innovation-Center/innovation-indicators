@@ -120,7 +120,7 @@ challenges_tidy_gs <- bind_rows(old_chal, updated_challenges) %>%
     sub_agency == "National Oceanic and Atmospheric Administration" ~ "NOAA",
     sub_agency == "United States Geological Survey" ~ "USGS",
     sub_agency == "Bureau of Land Management" ~ "BLM",
-    # note - USACE doesn't have any
+    # note - USACE and USFS don't have any challenges 
     sub_agency == "Army Corps of Engineers" ~ "USACE", 
     sub_agency == "United States Forest Service" ~ "USFS")) %>%
   # NOTE - this env flag has been fixed to remove challenges that are JUST DOI 
@@ -130,8 +130,14 @@ challenges_tidy_gs <- bind_rows(old_chal, updated_challenges) %>%
   mutate(env_flag = case_when(tidy_agy %in% c("BLM", "USGS", "USFS", "USFWS", "BOR", 
                                               "NOAA", "EPA", "NPS", "NRCS", "USACE") ~ "Environmental Agency", 
                               tidy_agy %in% c("NASA", "State", "DOT", "DHS", "DOL", 
-                                              "NIH") ~ "Comparison Agency", 
+                                              "NIH") ~ "Benchmark Agency", 
                               TRUE ~ "Other Agency")) %>%
+  # setting our category 
+  mutate(category = case_when(tidy_agy %in% c("BLM", "BOR", "DHS", 
+                                              "NPS", "NRCS", "State", "USACE",
+                                              "USFS", "USFWS") ~ "Field", 
+                              tidy_agy %in% c("DOL", "DOT", "EPA") ~ "Regulatory",
+                              tidy_agy %in% c("NASA", "NIH", "NOAA", "USGS") ~ "Research")) %>%
   relocate(end_year, .after = start_year) %>% 
   relocate(env_flag, .after = tidy_agy) %>%
   # recategorizing challenges types: 
@@ -162,8 +168,8 @@ challenges_tidy_gs <- bind_rows(old_chal, updated_challenges) %>%
 # )
 
 # push to google workbook file
-# write_sheet(challenges_tidy_gs, 
-#             "https://docs.google.com/spreadsheets/d/1nGUFCxrHxb7B9sN6MXAn02qJOgnlFB9T8vnb_OfV33c/edit?gid=0#gid=0", 
+# write_sheet(challenges_tidy_gs,
+#             "https://docs.google.com/spreadsheets/d/1nGUFCxrHxb7B9sN6MXAn02qJOgnlFB9T8vnb_OfV33c/edit?gid=0#gid=0",
 #             sheet = "challenges")
 
 ###############################################################################
@@ -291,7 +297,7 @@ final_summary_table <- bind_rows(filler_rows, challenges_summary_table) %>%
 
 
 # summary tables for challenges page 
-# i feel like it came from here: https://docs.google.com/spreadsheets/d/1jbohDzXp9AP81o22cOyv64JBPWNrZh_N9mQjfqCNk-4/edit?gid=1181720149#gid=1181720149
+# I2v1 data came from here: https://docs.google.com/spreadsheets/d/1jbohDzXp9AP81o22cOyv64JBPWNrZh_N9mQjfqCNk-4/edit?gid=1181720149#gid=1181720149
 chal_page_summary <- challenges_tidy_gs %>%
   filter(start_year >= min_year & start_year <= max_year) %>%
   group_by(start_year, tidy_agy, env_flag, tidy_challenge_type) %>%
@@ -340,4 +346,4 @@ flag_breakdown <- challenges_tidy_gs %>%
 # adding to our workbook! 
 # range_write("https://docs.google.com/spreadsheets/d/1nGUFCxrHxb7B9sN6MXAn02qJOgnlFB9T8vnb_OfV33c/edit?gid=1922074841#gid=1922074841",
 #             data = flag_breakdown, range = "challenge_summary_tables!A15:G18", col_names = TRUE)
-
+# 
