@@ -133,7 +133,7 @@ new_agys <- cube_data %>%
                         "ST00-DEPARTMENT OF STATE"))%>%
   mutate(name = case_when(
     agysubt == "HE38-NATIONAL INSTITUTES OF HEALTH" ~ "NIH",
-    agysubt == "ST00-DEPARTMENT OF STATE" ~ "DOS"),
+    agysubt == "ST00-DEPARTMENT OF STATE" ~ "State"),
     flag = "benchmark_agy")
 
 # adding together and cleaning the names up: 
@@ -201,7 +201,13 @@ agy_ratio <- agy_per %>%
   mutate(total_workforce = (Tech + non_it), 
          tech_pct = 100*(Tech/total_workforce)) %>%
   mutate(flag = case_when(flag == "enviro_agy" ~ " Environmental Agency", 
-                          TRUE ~ " Comparison Agency"))
+                          TRUE ~ " Benchmark Agency")) %>%
+  mutate(category = case_when(clean_name %in% c("BLM", "BOR", "DHS", 
+                                                "NPS", "NRCS", "State", "USACE",
+                                                "USFS", "USFWS") ~ "Field", 
+                              clean_name %in% c("DOL", "DOT", "EPA") ~ "Regulatory",
+                              clean_name %in% c("NASA", "NIH", "NOAA", "USGS") ~ "Research")) %>%
+  relocate(category, .after = clean_name)
 
 ###############################################################################
 # step four - update relevant datasets
@@ -212,9 +218,9 @@ agy_ratio_gs <- agy_ratio %>%
   mutate(date_last_data = paste0(max_year, "-03"))
 
 # push to google workbook file
-write_sheet(agy_ratio_gs, 
-            "https://docs.google.com/spreadsheets/d/1nGUFCxrHxb7B9sN6MXAn02qJOgnlFB9T8vnb_OfV33c/edit?gid=0#gid=0", 
-            sheet = "tech_staffing")
+# write_sheet(agy_ratio_gs, 
+#             "https://docs.google.com/spreadsheets/d/1nGUFCxrHxb7B9sN6MXAn02qJOgnlFB9T8vnb_OfV33c/edit?gid=0#gid=0", 
+#             sheet = "tech_staffing")
 
 ###############################################################################
 # step five - figures for innovation indicators website -staffing trends
@@ -225,9 +231,7 @@ staffing_long <- pivot_longer(agy_ratio, cols = c(ratio_tech, tech_pct),
   # creating better names: 
   mutate(n = case_when(
     n == "ratio_tech" ~ "Tech Ratio", 
-    TRUE ~ "Tech Percentage"), 
-    clean_name = case_when(clean_name == "DOS" ~ "State", 
-                           TRUE ~ clean_name)) %>%
+    TRUE ~ "Tech Percentage")) %>%
   rename(Agency = clean_name) %>%
   rename(Year = year) %>%
   mutate(Value = round(value, 3)) %>%
@@ -308,21 +312,13 @@ staffing_trends_innov_indicators
 # creating a column title: 
 col_title <- paste0(max_year, " Workforce - Tech Percentage")
 
-# grabbing our latest year
+# grabbing our latest year by agency: 
 summary_table <- staffing_long %>%
   group_by(Agency) %>%
   top_n(1, Year) %>%
-  rename(!!sym(col_title) := Value) 
-
-# grabbing our columns of interest and arranging data by agency
-summary_table <- summary_table %>%
-  mutate(env_flag = case_when(flag == " Environmental Agency" ~ "Yes", 
-                              TRUE ~ "No"), 
-         category = case_when(Agency %in% c("USGS", "NOAA", "NASA", "NIH") ~ "Research", 
-                              Agency %in% c("EPA", "DOT", "DOL") ~ "Regulatory", 
-                              TRUE ~ "Field")) %>%
-  select(Agency, env_flag, category, !!sym(col_title))  %>%
-  arrange(Agency)
+  rename(!!sym(col_title) := Value) %>%
+  ungroup() %>%
+  select(!!sym(col_title))
 
 # range_write("https://docs.google.com/spreadsheets/d/1nGUFCxrHxb7B9sN6MXAn02qJOgnlFB9T8vnb_OfV33c/edit?gid=1922074841#gid=1922074841",
 #             data = summary_table, range = "summary_tables!A1:D17", col_names = TRUE)
