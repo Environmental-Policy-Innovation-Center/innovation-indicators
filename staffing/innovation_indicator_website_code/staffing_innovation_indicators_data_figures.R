@@ -238,6 +238,15 @@ staffing_long <- pivot_longer(agy_ratio, cols = c(ratio_tech, tech_pct),
   # in later iterations, we decided to just keep the tech % 
   filter(n == "Tech Percentage")
 
+# grabbing legend order: 
+agy_order <- staffing_long %>%
+  group_by(Agency) %>%
+  top_n(1, Year) %>%
+  select(Agency, Value) %>%
+  arrange(-Value) %>%
+  select(Agency)
+staffing_long$Agency <- factor(staffing_long$Agency, levels = agy_order$Agency)
+
 # plottin' 
 staffing_plot <- ggplot(staffing_long, aes(x = Year, y = Value, 
                                            shape = flag,
@@ -267,8 +276,10 @@ staffing_plot <- ggplot(staffing_long, aes(x = Year, y = Value,
 # creating a title for the legend based on our years: 
 legend_title <- paste0("Agencies: ", min_year, "-", max_year, " <br />")
 staffing_trends_innov_indicators <- plotly::ggplotly(staffing_plot)%>% 
-  layout(legend = list(title = list(text = legend_title)))
+  layout(legend = list(title = list(text = legend_title), 
+                       traceorder = "normal"))
 
+# cleaning up the legend
 # from here: https://stackoverflow.com/questions/49133395/strange-formatting-of-legend-in-ggplotly-in-r
 for (i in 1:length(staffing_trends_innov_indicators$x$data)){
   if (!is.null(staffing_trends_innov_indicators$x$data[[i]]$name)){
