@@ -36,14 +36,14 @@ cat_palette <- colorRampPalette(c("#172f60","#1054a8",
 ##############################################################################
 # step one - pull latest usajobs data and tidy!
 ##############################################################################
-# LAST PULLED - MARCH 18TH 2025 
-date_pulled <- "2025-03-18"
+# LAST DATE PULLED 
+date_pulled <- "2025-03-25"
 
 # read latest data: 
 usajobs_data <- aws.s3::s3read_using(readRDS,
-                                     object = "s3://tech-team-data/enviro-hiring-trends/data/usajobs_data.rds")
+                                     object = "s3://tech-team-data/enviro-hiring-trends/worker-data/usajobs_data_AWSWORKER.rds")
 
-# tidying: 
+# tidying - lots of column names to organize 
 usajobs_tidy <- usajobs_data %>%
   select(matched_object_id, 
          matched_object_descriptor_department_name, 
@@ -171,11 +171,11 @@ enviro_jobs <- usajobs_simple %>%
                           "Forest Service", 
                           "National Oceanic And Atmospheric Administration", 
                           "National Park Service",
-                          "U.s. Fish And Wildlife Service",
+                          "U.S. Fish And Wildlife Service",
                           "Bureau Of Land Management",
                           "Bureau Of Reclamation",
                           "Geological Survey",
-                          "U.s. Army Corps Of Engineers")) %>%
+                          "U.S. Army Corps Of Engineers")) %>%
   mutate(analysis_flag = "enviro_agy")
 
 # grabbing benchmark agencies of interest: #################################### 
@@ -189,7 +189,7 @@ benchmark_agy <- usajobs_simple %>%
   mutate(analysis_flag = "benchmark_agy")
 
 
-# binding together: ###########################################################
+# binding together & organizing: ##############################################
 agy_tidy_jobs <- bind_rows(enviro_jobs, benchmark_agy)
 
 # developing a summary file of key columns: 
@@ -209,10 +209,10 @@ summary_file <- agy_tidy_jobs %>%
   mutate(clean_name = case_when(subagency == "U.S. Army Corps Of Engineers" ~ "USACE", 
                                 subagency == "Environmental Protection Agency" ~ "EPA", 
                                 subagency == "Natural Resources Conservation Service" ~ "NRCS", 
-                                subagency == "Forest Service" ~ "FS", 
+                                subagency == "Forest Service" ~ "USFS", 
                                 subagency == "National Oceanic And Atmospheric Administration" ~ "NOAA", 
                                 subagency == "National Park Service" ~ "NPS", 
-                                subagency == "U.S. Fish And Wildlife Service" ~ "FWS", 
+                                subagency == "U.S. Fish And Wildlife Service" ~ "USFWS", 
                                 subagency == "Bureau Of Land Management" ~ "BLM", 
                                 subagency == "Geological Survey" ~ "USGS", 
                                 subagency == "Bureau Of Reclamation" ~ "BOR", 
@@ -222,26 +222,15 @@ summary_file <- agy_tidy_jobs %>%
                                 agency == "Department Of Transportation" ~ "DOT", 
                                 agency =="Department Of Labor" ~ "DOL", 
                                 agency =="Department Of Homeland Security" ~ "DHS")) %>%
-  select(id, subagency, clean_name, position, min_annual_salary, 
+  # setting our category 
+  mutate(category = case_when(clean_name %in% c("BLM", "BOR", "DHS", 
+                                                "NPS", "NRCS", "State", "USACE",
+                                                "USFS", "USFWS") ~ "Field", 
+                              clean_name %in% c("DOL", "DOT", "EPA") ~ "Regulatory",
+                              clean_name %in% c("NASA", "NIH", "NOAA", "USGS") ~ "Research")) %>%
+  select(id, subagency, clean_name, category, position, min_annual_salary, 
          openings, all_series_code, all_series, it_specialist, analysis_flag)
   
-# now we're also working with departments, I need to add a column 
-  # name with the tidy name: 
-  # agency %in% c("National Aeronautics And Space Administration", 
-  #               "Department Of Transportation", 
-  #               "Department Of Labor", 
-  #               "Department Of Homeland Security"))
-  # mutate(clean_name = case_when(
-  #   analysis_flag == "enviro_agy" | subagency %in% c("National Institutes Of Health", 
-  #                                                    "Department Of State - Agency Wide") ~ subagency, 
-  #   analysis_flag != "enviro_agy" & agency == "National Aeronautics And Space Administration" ~ "NASA", 
-  #   analysis_flag != "enviro_agy" & agency == "Department Of Transportation" ~ "DOT", 
-  #   analysis_flag != "enviro_agy" & agency == "Department Of Labor" ~ "DOL", 
-  #   analysis_flag != "enviro_agy" & agency == "Department Of Homeland Security" ~ "DHS"
-  # )) %>%
-  # select(id, subagency, clean_name, position, min_annual_salary,
-  #        openings, all_series_code, all_series, analysis_flag)
-
 
 ##############################################################################
 # step two - update relevant datasets
@@ -251,8 +240,8 @@ summary_file_gs <- summary_file %>%
   mutate(date_last_data = date_pulled)
 
 # push to google workbook file
-# write_sheet(summary_file_gs, 
-#             "https://docs.google.com/spreadsheets/d/1nGUFCxrHxb7B9sN6MXAn02qJOgnlFB9T8vnb_OfV33c/edit?gid=0#gid=0", 
+# write_sheet(summary_file_gs,
+#             "https://docs.google.com/spreadsheets/d/1nGUFCxrHxb7B9sN6MXAn02qJOgnlFB9T8vnb_OfV33c/edit?gid=0#gid=0",
 #             sheet = "tech_hiring")
 
 ##############################################################################
@@ -298,7 +287,8 @@ agy_top_five_names <- merge(agy_top_five, code_keys,
   # this is the only series that didn't match to a name in our keys dataset: 
   mutate(all_series = case_when(is.na(all_series) ~ "Agricultural Engineering", 
                                 TRUE ~ all_series)) %>%
-  mutate(all_series = case_when(all_series == "Information Technology Management" ~ "*IT Management", 
+  # cleaning names for the legend (removed for i2v2 but still nice to have)
+  mutate(all_series = case_when(all_series == "Information Technology Management" ~ "IT Management", 
                                 TRUE ~ all_series),
          all_series = case_when(all_series == "Archeology" ~ "Archaeology", 
                                 TRUE ~ all_series),
@@ -306,25 +296,12 @@ agy_top_five_names <- merge(agy_top_five, code_keys,
                                 TRUE ~ all_series),
          all_series = case_when(all_series == "General Natural Resources Management And Biological Sciences" ~ "NRM & Bio Sciences", 
                                 TRUE ~ all_series)) %>%
-  mutate(clean_name = case_when(clean_name == "U.S. Army Corps Of Engineers" ~ "USACE", 
-                               clean_name == "Environmental Protection Agency" ~ "EPA", 
-                               clean_name == "Natural Resources Conservation Service" ~ "NRCS", 
-                               clean_name == "Forest Service" ~ "FS", 
-                               clean_name == "National Oceanic And Atmospheric Administration" ~ "NOAA", 
-                               clean_name == "National Park Service" ~ "NPS", 
-                               clean_name == "U.S. Fish And Wildlife Service" ~ "FWS", 
-                               clean_name == "Bureau Of Land Management" ~ "BLM", 
-                               clean_name == "Geological Survey" ~ "USGS", 
-                               clean_name == "Bureau Of Reclamation" ~ "BOR", 
-                               clean_name == "Department Of State - Agency Wide" ~ "State", 
-                               clean_name == "National Institutes Of Health" ~ "NIH", 
-                               TRUE ~ clean_name)) %>%
   mutate(`Total Listings` = paste0( "Total Listings: ", totals), 
          `Job Series` = all_series) %>%
-  mutate(IT_flag = case_when(all_series == "*IT Management" ~ "IT", 
+  mutate(IT_flag = case_when(all_series == "IT Management" ~ "IT", 
                              TRUE ~ "Not IT"), 
          analysis_flag =  case_when(analysis_flag == "enviro_agy" ~ "Environmental Agency", 
-                                   TRUE ~ "Comparison Agency")) %>%
+                                   TRUE ~ "Benchmark Agency")) %>%
  # creating a flag to order the y-axis by
   mutate(num_it = case_when(IT_flag == "IT" ~ totals, 
                             TRUE ~ 0))
@@ -400,29 +377,16 @@ tidy_title <- paste0(min_date, " - ", max_date, " IT Jobs Posted")
 
 # grab number of IT jobs posted since the scraper started: 
 it_summary <- summary_file %>%
-  mutate(it_flag = grepl("1550|2210|1515|0853", all_series_code)) %>%
-  mutate(clean_name = case_when(clean_name == "U.S. Army Corps Of Engineers" ~ "USACE", 
-                                clean_name == "Environmental Protection Agency" ~ "EPA", 
-                                clean_name == "Natural Resources Conservation Service" ~ "NRCS", 
-                                clean_name == "Forest Service" ~ "USFS", 
-                                clean_name == "National Oceanic And Atmospheric Administration" ~ "NOAA", 
-                                clean_name == "National Park Service" ~ "NPS", 
-                                clean_name == "U.S. Fish And Wildlife Service" ~ "USFWS", 
-                                clean_name == "Bureau Of Land Management" ~ "BLM", 
-                                clean_name == "Geological Survey" ~ "USGS", 
-                                clean_name == "Bureau Of Reclamation" ~ "BOR", 
-                                clean_name == "Department Of State - Agency Wide" ~ "State", 
-                                clean_name == "National Institutes Of Health" ~ "NIH", 
-                                TRUE ~ clean_name)) %>%
   group_by(clean_name) %>%
-  # I'm also curious about the totals: 
+  # I'm also curious about the totals to check my math: 
   summarize(total = n(), 
-            it_postings = sum(it_flag)) %>%
+            it_postings = sum(it_specialist == TRUE)) %>%
   arrange(clean_name) %>%
+  # rename the title to match the last pull date range: 
   rename(!!sym(tidy_title) := it_postings) %>%
   select(-c(clean_name, total))
 
 # range_write("https://docs.google.com/spreadsheets/d/1nGUFCxrHxb7B9sN6MXAn02qJOgnlFB9T8vnb_OfV33c/edit?gid=1922074841#gid=1922074841",
 #             data = it_summary, range = "summary_tables!F1:F17", col_names = TRUE)
-
+# 
 
