@@ -16,6 +16,14 @@ output: html_document
 ## 8. Langauge 100% Stacked Bar
 ## 9. Langauge heatmap (unpublished)
 
+## TO DO Ii2v2 Updates
+## xAdd benchmark agencies - NASA, NIH, Department of Labor, Department of State, Department of Transportation, Department of Human Health Services 
+## Calculate repo growth summary information 
+## xError handling
+## xNew IT investment data
+## Remake graphs - add benchmarks to table + make langauge graph interactive 
+## Summary stat to google sheets and graphic push AWS + google sheets 
+
 # Load libraries and global vars
 ```{r}
 
@@ -35,7 +43,7 @@ library(aws.s3)
 library(plotly)
 library(htmlwidgets)
 
-github_token <- "YOUR TOKEN"
+github_token <- ""
 
 ```
 
@@ -66,6 +74,8 @@ get_paginated_data <- function(base_url, headers) {
       url <- NULL  # No pagination header, stop the loop
     }
   }
+  
+  Sys.sleep(3) ## sleeping for at least 4 seconds per repo to avoid rate limiting 
   return(results)
 }
 
@@ -119,11 +129,11 @@ get_repo_details <- function(org_name, agency, github_token) {
       languages_url <- paste0("https://api.github.com/repos/", org_name, "/", repo_name, "/languages")
       languages_data <- content(GET(languages_url, headers), "parsed")
       languages <- ifelse(length(languages_data) > 0, paste(names(languages_data), collapse = ", "), NA)
-      
+      print("retrieved langauges")
       # Get commits
       commits_url <- paste0("https://api.github.com/repos/", org_name, "/", repo_name, "/commits?per_page=100")
       commits <- get_paginated_data(commits_url, headers)
-      
+      print("retrieved commits")
       # Check if commits list is not empty before accessing it
       if (length(commits) > 0 && is.list(commits)) {
         first_commit_date <- commits[[length(commits)]]$commit$author$date
@@ -138,7 +148,7 @@ get_repo_details <- function(org_name, agency, github_token) {
       contributors <- get_paginated_data(contributors_url, headers)
       num_contributors <- ifelse(length(contributors) > 0, length(contributors), NA)
       contributor_usernames <- ifelse(length(contributors) > 0, paste(sapply(contributors, function(c) c$login), collapse = ", "), NA)
-  
+  print("retrieved contributors")
       # Store information
       repo_info_list[[repo_name]] <- list(
         repo_url = repo_url,
@@ -195,10 +205,10 @@ get_repos_for_agencies <- function(agencylist, github_token) {
     # save out for NOAA repos in event of loop failure or rate limit - comment out to avoid saving
     if(agency == "National Oceanic and Atmospheric Administration")
     {
-    write.csv(repo_info, paste0("results/noaa_organizations/", github_org, "_data.csv"), row.names = FALSE)
+    write.csv(repo_info, paste0("results_i2v2/noaa_organizations/", github_org, "_data.csv"), row.names = FALSE)
     }
     else
-    write.csv(repo_info, paste0("results/non_noaa_organizations/", github_org, "_data.csv"), row.names = FALSE)
+    write.csv(repo_info, paste0("results_i2v2/non_noaa_organizations/", github_org, "_data.csv"), row.names = FALSE)
     
     # Store results with agency name
     all_repo_info[[agency]] <- repo_info
@@ -206,27 +216,28 @@ get_repos_for_agencies <- function(agencylist, github_token) {
   
   # Combine all repository info into one data frame (if desired)
   combined_repo_info <- do.call(rbind, all_repo_info)
-  print(combined_repo_info)
+
   return(combined_repo_info)
   
  # Uncomment to save out file of single agency
- # write.csv(agency_repo_details, paste0("results/agency_github_data.csv"))
+  write.csv(agency_repo_details, paste0("results_i2v2/",agency,"_github_data.csv"))
 }
 
 ```
 
 ## Pulling it all together (need to handle NOAA seperetly as they have a multi-organizational structure)
 ```{r}
+## adding benchmark agencies NASA, NIH, Department of Labor, Department of State, Department of Transportation, Department of Homeland Security
 ## Research set environmental agencies 
-agencies <- data.frame(agencylist <- c("Forest Service","Natural Resources Conservation Service","U.S. Fish and Wildlife Service","National Park Service","U.S. Geological Survey","Bureau of Land Management","Environmental Protection Agency", "Bureau of Reclamation", "U.S. Army Corps Of Engineers"),
-                       
+agencies <- data.frame(agencylist <- c("Forest Service","Natural Resources Conservation Service","U.S. Fish and Wildlife Service","National Park Service","U.S. Geological Survey","Bureau of Land Management","Environmental Protection Agency", "Bureau of Reclamation", "U.S. Army Corps of Engineers","National Aeronautics and Space Administration","Department of Labor","Department of State","Department of Homeland Security"),
+
                   github_org = c("USDAForestService", "USDA-NRCS", 
                  "USFWS", "nationalparkservice", "USGS", 
                  "doi-blm", "usepa", "doi-bor", 
-                 "USACE"))
+                 "USACE","NASA","usdepartmentoflabor","usstatedept","dhs-gov"))
 
 ## NOAA 
-noaa <- data.frame(github_org = c("NOAA-PMEL","NOAA-CSL","NOAA-GSL","NOAA-EMC","NOAA-PSL","NOAA-ERD","NOAA-GFDL","NOAA-EDAB","NOAA-AOML","NOAA-GLERL","NOAA-OCS","NOAA-OCM","nmfs-fish-tools","NOAA-MDL","NOAA-OWP","NOAA-SWPC","NOAA-CO-OPS","NOAA-PIFSC","NOAA-NGS","MSE-NCCOS-NOAA","NOAA-GML","HABF-SDI-NCCOS-NOAA","NOAA-Omics","noaa-ncai"))
+noaa <- data.frame(github_org = c("NOAA-PMEL","NOAA-CSL","NOAA-GSL","NOAA-EMC","NOAA-PSL","NOAA-ORR-ERD","NOAA-GFDL","NOAA-EDAB","NOAA-AOML","NOAA-GLERL","NOAA-OCS","NOAA-OCM","nmfs-fish-tools","NOAA-MDL","NOAA-OWP","NOAA-SWPC","NOAA-CO-OPS","NOAA-PIFSC","NOAA-NGS","MSE-NCCOS-NOAA","NOAA-GML","HABF-SDI-NCCOS-NOAA","NOAA-Omics","noaa-ncai"))
 noaa <- noaa %>% mutate(agencyList = "National Oceanic and Atmospheric Administration")
 
 # Fetch repository details for all agencies (note this usually needs to be done in parts to avoid rate limit issues (5,000 requests per hour))
@@ -242,27 +253,37 @@ noaa_repos_pull <- get_repos_for_agencies(noaa, github_token)
 
 
 ## Looping through and compiling all of the NOAA repositories 
-noaa_csv_files <- list.files(path = "results/noaa_organizations/", pattern = "\\.csv$", full.names = TRUE)
+noaa_csv_files <- list.files(path = "results_i2v2/noaa_organizations/", pattern = "\\.csv$", full.names = TRUE)
 # Loop through the files, read them, and rbind into one dataframe
 noaa_repos <- do.call(rbind, lapply(noaa_csv_files, read.csv))
 
 ## Pulling key agencies from file given fragility of loop
 ## Looping through and compiling all of the non_NOAA repositories 
-non_noaa_csv_files <- list.files(path = "results/non_noaa_organizations/", pattern = "\\.csv$", full.names = TRUE)
+non_noaa_csv_files <- list.files(path = "results_i2v2/non_noaa_organizations/", pattern = "\\.csv$", full.names = TRUE)
 # Loop through the files, read them, and rbind into one dataframe
 non_noaa_repos <- do.call(rbind, lapply(non_noaa_csv_files, read.csv))
 
 repo_details_final <- rbind(noaa_repos,non_noaa_repos)
 
+
+
 ## double checking uniqueness ##
-# length(unique(repo_details_final$repo_url))
+## length(unique(repo_details_final$repo_url))
+## unique(repo_details_final$agency)
 ### SAVING OUT FINAL FILE ##### 
 
-## Filtering to FY 22 - FY 24 for Innovation Indicators Analysis
-repo_details_final_fy22_fy24 <- repo_details_final %>%
-                      filter(last_commit_date < mdy("09-30-2024") & last_commit_date > mdy("03-28-2021"))
+## iTv2 Time Window
+## FY 22 START October 01 2021
+## END March 24, 2025
+repo_details_final_i2 <- repo_details_final %>%
+                      filter(last_commit_date < mdy("3-24-2025") & last_commit_date > mdy("10-01-2021"))%>%
+  mutate(agency = ifelse(agency == "U.S. Army Corps Of Engineers","U.S. Army Corps of Engineers",agency))
 
-write.csv(repo_details_final_fy22_fy24, paste0("results/agency_github_data_clean_final_",Sys.Date(),".csv"), row.names = FALSE)
+## Note that US State Department is getting dropped as commits havn't occured in our time window 
+
+write.csv(repo_details_final_i2, paste0("results/agency_github_data_clean_final_",Sys.Date(),".csv"), row.names = FALSE)
+
+#write.csv(repo_details_final %>% select(repo_url,organization,agency), paste0("results/agency_repo_list",Sys.Date(),".csv"), row.names = FALSE)
   
 ```
 
@@ -273,33 +294,37 @@ write.csv(repo_details_final_fy22_fy24, paste0("results/agency_github_data_clean
 
 ## turning off authentication 
 gs4_deauth()
-agency_spending_raw <- read_sheet("https://docs.google.com/spreadsheets/d/13kJmPmO90DLDKkld7WwsXkLTvxqx6LpuZNC0kfGUvLk/edit?gid=1651404917#gid=1651404917", sheet = "it_totals")
+agency_spending_raw <- read_sheet("https://docs.google.com/spreadsheets/d/1nGUFCxrHxb7B9sN6MXAn02qJOgnlFB9T8vnb_OfV33c/edit?gid=1475227190#gid=1475227190", sheet = "mission_spend")
 
 agency_spending_clean <- agency_spending_raw %>%
-                         select(sub_agency, total_funding)%>%
+                         select(sub_agency, total_funding, benchmark)%>%
                          mutate(total_funding = total_funding)
 
-## FY 22 START March 28, 2021
-## FY 24 END September 30, 2024
+
 ## Basic summary of counts ## 
-numeric_summary <- repo_details_final_fy22_fy24 %>%
+numeric_summary <- repo_details_final_i2 %>%
+  mutate(repo_commit_6m = ifelse(last_commit_date > mdy("09-23-2024"), 1,0))%>%
   rename(sub_agency = agency)%>%
   group_by(sub_agency) %>%
   summarize(
+    repo_commits_6m = sum(repo_commit_6m, na.rm = TRUE),
     num_commits = sum(num_commits, na.rm = TRUE),
     num_contributors = sum(num_contributors, na.rm = TRUE),
     num_repos = n()  # Count number of rows in each group
-  )
+  )%>%
+  mutate(per_repos_commits_6m = repo_commits_6m/num_repos)%>%
+  mutate(sub_agency = ifelse(sub_agency == "U.S. Army Corps Of Engineers","U.S. Army Corps of Engineers",sub_agency))
 
-github_innovation <- left_join(numeric_summary,agency_spending_clean)%>%
-                     filter(!is.na(total_funding))%>%
+github_innovation <- left_join(agency_spending_clean,numeric_summary)%>%
+                    filter(!is.na(total_funding))%>%
+                    filter(!is.na(num_repos))%>%
                      mutate(repo_per_million = num_repos / total_funding )
                      
 write.csv(github_innovation, paste0("results/open_source_indicator_",Sys.Date(),".csv"), row.names = FALSE)
   
 
 ## Summary of languages ##
-language_summary_long <- repo_details_final_fy22_fy24 %>%
+language_summary_long <- repo_details_final_i2 %>%
     separate_rows(languages, sep = ", ") %>%
     group_by(agency, repo_url, languages) %>%
     summarize(language_count = 1, .groups = 'drop') %>%  # Ensure unique language per repository
@@ -316,7 +341,7 @@ language_summary <- language_summary_wide %>%
     summarize(across(everything(), sum, na.rm = TRUE))%>%
     select(-c("NA"))
 
-write.csv(language_summary, paste0("results/github_languages_fy22_fy24_",Sys.Date(),".csv"), row.names = FALSE)
+write.csv(language_summary, paste0("results_i2v2/github_languages_i2v2_",Sys.Date(),".csv"), row.names = FALSE)
 ```
 
 
@@ -324,16 +349,19 @@ write.csv(language_summary, paste0("results/github_languages_fy22_fy24_",Sys.Dat
 ```{r}
 
 sub_agency_df <- data.frame(
-  sub_agency =  c("Forest Service","Natural Resources Conservation Service","U.S. Fish and Wildlife Service","National Park Service","U.S. Geological Survey","Bureau of Land Management","Environmental Protection Agency", "Bureau of Reclamation", "U.S. Army Corps Of Engineers", "National Oceanic and Atmospheric Administration"),
-  sub_agency_abbrev = c("FS","NRCS","FWS","NPS","USGS","BLM","EPA","BOR", "USACE","NOAA"))
+  sub_agency =  c("Forest Service","Natural Resources Conservation Service","U.S. Fish and Wildlife Service","National Park Service","U.S. Geological Survey","Bureau of Land Management","Environmental Protection Agency", "Bureau of Reclamation", "U.S. Army Corps of Engineers", "National Oceanic and Atmospheric Administration","National Aeronautics and Space Administration","Department of Labor","Department of State","Department of Homeland Security"),
+  
+  sub_agency_abbrev = c("FS","NRCS","FWS","NPS","USGS","BLM","EPA","BOR","USACE","NOAA","NASA","DOL","State","DHS"))
 
 no_lang <- c('HTML', 'Makefile', 'Dockerfile', 'Jupyter Notebook','Batchfile', 'M4','Procfile', 'Vue', 'Smarty', 'CMake',
             'JavaScript', 'CSS',"SCSS",'Shell', 'TeX', "Inno Setup","PowerShell", "Roff","Rich Text Format","Jinja","BitBake","ASP.NET","Pug","QMake","Stylus", "Less", "Mako", "SWIG", "Twig", "EJS", "Handlebars", "Module Management System", "LLVM", "FreeMarker")
 
+benchmark <- agency_spending_clean %>%
+            select(benchmark,sub_agency)
 
 languages_bar_agency_prep <- language_summary %>%
           rename(sub_agency = agency)%>%
-          left_join(sub_agency_df)%>%
+          right_join(sub_agency_df)%>%
           filter(!is.na(sub_agency_abbrev))%>%
           select(-c(no_lang))%>%
           select(-c(sub_agency))%>%
@@ -355,8 +383,10 @@ languages_bar_agency_5 <- languages_bar_agency_prep %>%
                           slice(1:5)%>%
                           ungroup()%>%
                           filter(count > 0)%>%
-                          rbind(.,languages_bar_agency_other)
-#write.csv(languages_bar_agency_5, "results/languages_graph_data.csv", row.names = FALSE)
+                          rbind(.,languages_bar_agency_other)%>%
+                          left_join(sub_agency_df)%>%
+                          left_join(benchmark)
+#write.csv(languages_bar_agency_5, "results_i2v2/languages_graph_data.csv", row.names = FALSE)
 sysfonts::font_add_google("Lato")
 showtext::showtext_auto()
 epic_chart_theme <- theme_minimal() + 
@@ -386,11 +416,29 @@ sorted_data <- languages_bar_agency_5 %>%
   summarize(total_count = sum(count)) %>%
   arrange(desc(total_count))
 
-# Reorder the languages factor based on the total counts
+# Step 1: Reorder the languages factor based on total counts
 languages_bar_agency_5 <- languages_bar_agency_5 %>%
-    mutate(languages = factor(languages, levels = c(sorted_data$languages[sorted_data$languages != "Other"], "Other")))%>%
-  group_by(sub_agency_abbrev) 
+  mutate(
+    languages = factor(
+      languages,
+      levels = c(sorted_data$languages[sorted_data$languages != "Other"], "Other")
+    )
+  )
 
+# Step 2: Reorder sub_agency_abbrev so benchmark == 1 come last
+languages_bar_agency_5 <- languages_bar_agency_5 %>%
+  arrange(benchmark, sub_agency_abbrev) %>%
+  mutate(
+    sub_agency_abbrev = factor(sub_agency_abbrev, levels = unique(sub_agency_abbrev))
+  )%>%
+    group_by(sub_agency_abbrev) %>%
+  mutate(
+    percent = count / sum(count),
+    tooltip = paste0(
+       languages,
+      ": ", scales::percent(percent, accuracy = 1)
+    )
+  )
 
 set.seed(11) # Optional for reproducibility
 shuffled_palette <- sample(expanded_palette)
@@ -401,7 +449,7 @@ final_palette <- c(setNames(shuffled_palette[1:(length(language_names) - 1)], la
                    "Other" = "grey")
 
 # Plot with sorted legend
-bar_plot <- ggplot(languages_bar_agency_5, aes(fill = languages, y = count, x = sub_agency_abbrev)) +
+language_bar_plot <- ggplot(languages_bar_agency_5, aes(fill = languages, y = count, x = sub_agency_abbrev, text = tooltip)) +
   geom_bar(position = "fill", stat = "identity", color = "black", size = 0.1) +
   scale_fill_manual(values = final_palette) +
   scale_y_continuous(labels = scales::percent) +
@@ -409,17 +457,39 @@ bar_plot <- ggplot(languages_bar_agency_5, aes(fill = languages, y = count, x = 
   ylab("Percent of Repositories")+
   epic_chart_theme
 
+language_bar_plot_plotly <- ggplotly(language_bar_plot, tooltip = "tooltip")%>% config(displayModeBar = FALSE)
 
-ggsave("results/plots/github_bar_plot.jpeg", plot = bar_plot, units = "cm", width = 15, height = 10, dpi = 600)
+## saving file 
+html_file <- "github_languages_bar_plot.html"
+saveWidget(language_bar_plot_plotly, file = html_file, selfcontained = TRUE)
 
+## Insert your own AWS location to host
+bucket_name <- "tech-team-data"
+s3_object_path <- paste0("innovation-indicators/I2V2/",html_file)  # Adjust the folder_name as needed
+
+## Insert your own AWS location to host
+put_object(
+  file = html_file,              # Local file to upload
+  object = s3_object_path,       # Path in S3 bucket
+  bucket = bucket_name,          # S3 bucket name
+  acl = "public-read",
+  multipart = TRUE               # Handle larger files if needed
+)
 ```
+
+
 ## Table Data 
 ```{r}
 table_data <- github_innovation %>%
-              select(sub_agency,num_repos,num_contributors,num_commits,repo_per_million)%>%
-              mutate(repo_per_million = round(repo_per_million, 3))
-
+              select(sub_agency,num_repos,num_contributors,num_commits,repo_per_million, per_repos_commits_6m)%>%
+              mutate(repo_per_million = round(repo_per_million, 3))%>%
+              mutate(per_repos_commits_6m = scales::percent(per_repos_commits_6m))
+gs4_auth()
+sheet_write(data = table_data, ss = "https://docs.google.com/spreadsheets/d/1nGUFCxrHxb7B9sN6MXAn02qJOgnlFB9T8vnb_OfV33c/edit?gid=2052781809#gid=2052781809", sheet = "github_summary")
 ```
+
+## Cummaltive Repos over Time ## 
+
 ## language heat map (unpublished)
 ```{r}
 ## reading in raw data 
