@@ -58,5 +58,6 @@ summary_table_reactable
 #                   s3_link = "s3://tech-team-data/innovation-indicators/I2V2/summary_table.html",
 #                   public_link = "https://tech-team-data.s3.us-east-1.amazonaws.com/innovation-indicators/I2V2/summary_table.html")
 # 
+
 # range_write("https://docs.google.com/spreadsheets/d/1nGUFCxrHxb7B9sN6MXAn02qJOgnlFB9T8vnb_OfV33c/edit?gid=1922074841#gid=1922074841",
-#             data = fig, range = "assets!A4:C4", col_names = FALSE)
+#             data = fig, range = "assets!A6:C6", col_names = FALSE)
