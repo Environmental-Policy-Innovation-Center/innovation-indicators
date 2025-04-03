@@ -53,7 +53,7 @@ max_year = year(max_date)
 # the archived 2024 - 2023 challenges, and active 2024 october challenges. 
 # we already have a decent archive, so I just need to add new archived challenges  
 # nov 2023 - october 2024, and add the ones that are currently active
-gs4_deauth()
+# gs4_deauth()
 # gs4_auth()
 URL <- "https://docs.google.com/spreadsheets/d/1poMJIFPdHLN8mHLa-hVMsZRFEWn7jIBJSrFsTUQCws8/edit?gid=1005692776#gid=1005692776"
 # this contains data pulled from 2020 to the later half of 2023
