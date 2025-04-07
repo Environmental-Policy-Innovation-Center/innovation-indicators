@@ -18,11 +18,11 @@ output: html_document
 
 ## TO DO Ii2v2 Updates
 ## xAdd benchmark agencies - NASA, NIH, Department of Labor, Department of State, Department of Transportation, Department of Human Health Services 
-## Calculate repo growth summary information 
+## xCalculate repo growth summary information 
 ## xError handling
 ## xNew IT investment data
-## Remake graphs - add benchmarks to table + make langauge graph interactive 
-## Summary stat to google sheets and graphic push AWS + google sheets 
+## xRemake graphs - add benchmarks to table + make langauge graph interactive 
+## xSummary stat to google sheets and graphic push AWS + google sheets 
 
 # Load libraries and global vars
 ```{r}
@@ -231,7 +231,7 @@ get_repos_for_agencies <- function(agencylist, github_token) {
 ## Research set environmental agencies 
 agencies <- data.frame(agencylist <- c("Forest Service","Natural Resources Conservation Service","U.S. Fish and Wildlife Service","National Park Service","U.S. Geological Survey","Bureau of Land Management","Environmental Protection Agency", "Bureau of Reclamation", "U.S. Army Corps of Engineers","National Aeronautics and Space Administration","Department of Labor","Department of State","Department of Homeland Security"),
 
-                  github_org = c("USDAForestService", "USDA-NRCS", 
+                  github_org = c("USDAForestService", "USDA-NRCS",
                  "USFWS", "nationalparkservice", "USGS", 
                  "doi-blm", "usepa", "doi-bor", 
                  "USACE","NASA","usdepartmentoflabor","usstatedept","dhs-gov"))
@@ -265,6 +265,16 @@ non_noaa_repos <- do.call(rbind, lapply(non_noaa_csv_files, read.csv))
 
 repo_details_final <- rbind(noaa_repos,non_noaa_repos)
 
+write.csv(repo_details_final, file.path(tempdir(), "repo_details_final_march_2025.csv"), row.names = FALSE)
+
+## Insert your own AWS location to host
+put_object(
+  file = file.path(tempdir(), "repo_details_final_march_2025.csv"),              # Local file to upload
+  object = "innovation-indicators/I2V2/data/repo_details_final_march_2025.csv",       # Path in S3 bucket
+  bucket = "tech-team-data",          # S3 bucket name
+  acl = "public-read",
+)
+
 
 
 ## double checking uniqueness ##
@@ -282,6 +292,7 @@ repo_details_final_i2 <- repo_details_final %>%
 ## Note that US State Department is getting dropped as commits havn't occured in our time window 
 
 write.csv(repo_details_final_i2, paste0("results/agency_github_data_clean_final_",Sys.Date(),".csv"), row.names = FALSE)
+
 
 #write.csv(repo_details_final %>% select(repo_url,organization,agency), paste0("results/agency_repo_list",Sys.Date(),".csv"), row.names = FALSE)
   
@@ -351,7 +362,7 @@ write.csv(language_summary, paste0("results_i2v2/github_languages_i2v2_",Sys.Dat
 sub_agency_df <- data.frame(
   sub_agency =  c("Forest Service","Natural Resources Conservation Service","U.S. Fish and Wildlife Service","National Park Service","U.S. Geological Survey","Bureau of Land Management","Environmental Protection Agency", "Bureau of Reclamation", "U.S. Army Corps of Engineers", "National Oceanic and Atmospheric Administration","National Aeronautics and Space Administration","Department of Labor","Department of State","Department of Homeland Security"),
   
-  sub_agency_abbrev = c("FS","NRCS","FWS","NPS","USGS","BLM","EPA","BOR","USACE","NOAA","NASA","DOL","State","DHS"))
+  sub_agency_abbrev = c("USFS","NRCS","USFWS","NPS","USGS","BLM","EPA","BOR","USACE","NOAA","NASA","DOL","State","DHS"))
 
 no_lang <- c('HTML', 'Makefile', 'Dockerfile', 'Jupyter Notebook','Batchfile', 'M4','Procfile', 'Vue', 'Smarty', 'CMake',
             'JavaScript', 'CSS',"SCSS",'Shell', 'TeX', "Inno Setup","PowerShell", "Roff","Rich Text Format","Jinja","BitBake","ASP.NET","Pug","QMake","Stylus", "Less", "Mako", "SWIG", "Twig", "EJS", "Handlebars", "Module Management System", "LLVM", "FreeMarker")
@@ -392,18 +403,18 @@ showtext::showtext_auto()
 epic_chart_theme <- theme_minimal() + 
   theme(legend.position = "right", 
        # text = element_text(size = 13, family = "Lato"), 
-        legend.text = element_text(size = 24, family = "Lato"), 
-        legend.title = element_text(size = 24, family = "Lato"), 
+        legend.text = element_text(size = 10, family = "Lato"), 
+        legend.title = element_text(size = 11, family = "Lato", hjust =.5), 
         axis.title = element_text(size = 24, family = "Lato"), 
-        axis.text.x = element_text(angle = 45, size = 24, margin = margin(t = 10, r = 0, 
+        axis.text.x = element_text(margin = margin(t = 10, r = 0, 
                                                    b = 0, l = 0), face = "bold"), 
         
         axis.title.x = element_text(size = 16, margin = margin(t = 10, r = 0, 
                                                     b = 0, l = 0)), 
         axis.text.y = element_text(size = 16, margin = margin(t = 0, r = 10, 
                                                    b = 0, l = 0)), 
-        axis.title.y = element_text(size = 24, margin = margin(t = 0, r = 10, 
-                                                    b = 0, l = 0), , face = "bold")) 
+        axis.title.y = element_text(size = 16, margin = margin(t = 0, r = 10, 
+                                                    b = 0, l = 0),face = "bold")) 
 
 cat_palette_pastel <- colorRampPalette(c("#172f60","#1054a8",
 "#791a7b","#de9d29",
@@ -481,14 +492,19 @@ put_object(
 ## Table Data 
 ```{r}
 table_data <- github_innovation %>%
-              select(sub_agency,num_repos,num_contributors,num_commits,repo_per_million, per_repos_commits_6m)%>%
+              left_join(sub_agency_df)%>%
+              select(sub_agency_abbrev,sub_agency,num_repos,num_contributors,num_commits,repo_per_million, per_repos_commits_6m)%>%
               mutate(repo_per_million = round(repo_per_million, 3))%>%
               mutate(per_repos_commits_6m = scales::percent(per_repos_commits_6m))
+             
+gs4_deauth()
 gs4_auth()
+
 sheet_write(data = table_data, ss = "https://docs.google.com/spreadsheets/d/1nGUFCxrHxb7B9sN6MXAn02qJOgnlFB9T8vnb_OfV33c/edit?gid=2052781809#gid=2052781809", sheet = "github_summary")
+
+
 ```
 
-## Cummaltive Repos over Time ## 
 
 ## language heat map (unpublished)
 ```{r}
