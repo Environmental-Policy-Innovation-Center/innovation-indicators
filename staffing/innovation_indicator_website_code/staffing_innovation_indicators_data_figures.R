@@ -236,7 +236,24 @@ staffing_long <- pivot_longer(agy_ratio, cols = c(ratio_tech, tech_pct),
   rename(Year = year) %>%
   mutate(Value = round(value, 3)) %>%
   # in later iterations, we decided to just keep the tech % 
-  filter(n == "Tech Percentage")
+  filter(n == "Tech Percentage") %>%
+  mutate(full_name = case_when(
+    Agency == "BLM" ~ "Bureau of Land Management", 
+    Agency == "NOAA" ~ "National Oceanic and Atmospheric Administration", 
+    Agency == "NASA" ~ "National Aeronautics and Space Administration",
+    Agency == "DOL" ~ "U.S. Department of Labor", 
+    Agency == "State" ~ "United States Department of State", 
+    Agency == "USGS" ~ "United States Geological Survey", 
+    Agency == "BOR" ~ "Bureau of Reclamation", 
+    Agency == "NIH" ~ "National Institutes of Health", 
+    Agency == "EPA" ~ "Environmental Protection Agency", 
+    Agency == "DOT" ~ "Department of Transportation", 
+    Agency == "DHS" ~ "Department of Homeland Security", 
+    Agency == "USACE" ~ "U.S Army Corps of Engineers", 
+    Agency == "NPS" ~ "National Parks Service", 
+    Agency == "BLM" ~ "Bureau of Land Management", 
+    Agency == "USFWS" ~ "U.S. Fish and Wildife Service", 
+    Agency == "NRCS" ~ "Natural Resources Conservation Service"))
 
 # grabbing legend order: 
 agy_order <- staffing_long %>%
@@ -252,7 +269,12 @@ staffing_plot <- ggplot(staffing_long, aes(x = Year, y = Value,
                                            shape = flag,
                                            color = Agency)) + 
   geom_line(linewidth = 1.2, alpha = 0.75) + 
-  geom_point(size = 4, alpha = 0.8) + 
+  geom_point(aes(text = paste0("Year: ", Year, "<br />",
+                               "Value: ", Value, "%", "<br />",
+                               "Flag:", flag, "<br />",   
+                               "Agency: ", Agency, "<br />", 
+                               "Full Name: ", full_name)), 
+             size = 4, alpha = 0.8) + 
   epic_chart_theme + 
   scale_colour_manual(values = cat_palette(16), 
                       name = "") + 
@@ -275,7 +297,8 @@ staffing_plot <- ggplot(staffing_long, aes(x = Year, y = Value,
 
 # creating a title for the legend based on our years: 
 legend_title <- paste0("Agencies: ", min_year, "-", max_year, " <br />")
-staffing_trends_innov_indicators <- plotly::ggplotly(staffing_plot)%>% 
+staffing_trends_innov_indicators <- plotly::ggplotly(staffing_plot, 
+                                                     tooltip = c("text"))%>% 
   layout(legend = list(title = list(text = legend_title), 
                        traceorder = "normal"))
 
