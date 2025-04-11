@@ -286,7 +286,7 @@ put_object(
 ## FY 22 START October 01 2021
 ## END March 24, 2025
 repo_details_final_i2 <- repo_details_final %>%
-                      filter(last_commit_date < mdy("3-24-2025") & last_commit_date > mdy("10-01-2021"))%>%
+                      filter(first_commit_date < mdy("3-24-2025") & last_commit_date > mdy("10-01-2021"))%>%
   mutate(agency = ifelse(agency == "U.S. Army Corps Of Engineers","U.S. Army Corps of Engineers",agency))
 
 ## Note that US State Department is getting dropped as commits havn't occured in our time window 
