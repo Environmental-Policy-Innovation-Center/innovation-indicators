@@ -1,8 +1,8 @@
 ![Primary Logo - 950x250 - Transparent Background](https://github.com/user-attachments/assets/b89e0ba6-ac56-4ec4-a3c8-372ae4a44101)
 
 # Innovation Indicators
-This repository contains the code necessary to recreate the results presented through the Innovation Indicators website (insert link when available). It pulls, cleans, analyzes, and visualizes the data from public sources.
-EPIC is developing and maintaining these metrics iteratively over time. Please review our methodology and data dictionary for context and interpretations (links). 
+This repository contains the code necessary to recreate the results presented through the Innovation Indicators [website](https://www.policyinnovation.org/innovation-indicators). It pulls, cleans, analyzes, and visualizes the data from public sources.
+EPIC is developing and maintaining these metrics iteratively over time. Please review our [methodology](https://docs.google.com/document/d/1-vAbGiwHhInAUFn--gdIFjGaFHfY9d6zGogqB0_r_Nw/edit?tab=t.0) and [data dictionary](https://docs.google.com/spreadsheets/d/1nGUFCxrHxb7B9sN6MXAn02qJOgnlFB9T8vnb_OfV33c/edit?gid=0#gid=0) for context and interpretations. 
 
 ## Navigation and Use
 The repository is organized by indicator according to the following structure. See individual folder ReadMes for further file specifics. Since this project utilizes EPIC's private amazon web service s3 buckets throughout the data pipeline, 
