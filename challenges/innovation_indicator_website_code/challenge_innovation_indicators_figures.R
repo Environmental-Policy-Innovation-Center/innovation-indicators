@@ -46,7 +46,7 @@ min_date = as.Date("01-01-2016", tryFormats = c("%m-%d-%Y"))
 min_year <- year(min_date)
 
 # TODO - update the max year with each manual update of these data! 
-max_date = as.Date("10-28-2024", tryFormats = c("%m-%d-%Y"))
+max_date = as.Date("06-23-2025", tryFormats = c("%m-%d-%Y"))
 max_year = year(max_date)
 
 # essentially, I created a spreadsheet with some extra tabs containing 
@@ -56,39 +56,30 @@ max_year = year(max_date)
 # gs4_deauth()
 # gs4_auth()
 URL <- "https://docs.google.com/spreadsheets/d/1poMJIFPdHLN8mHLa-hVMsZRFEWn7jIBJSrFsTUQCws8/edit?gid=1005692776#gid=1005692776"
-# this contains data pulled from 2020 to the later half of 2023
-old_chal <- read_sheet(URL, sheet = "Nov2023") %>%
+
+# rbind these and find distinct records ! 
+nov_2023 <- read_sheet(URL, sheet = "Nov2023") %>%
+  # grabbing just the base columns: 
+  select(`Challenge ID`:`URL of Challenge Landing Page`)
+archived_2023 <- read_sheet(URL, sheet = "Archived_2023")
+archived_2024_oct <- read_sheet(URL, sheet = "Archived_2024")
+active_oct28 <- read_sheet(URL, sheet = "Active_Oct28_2024")
+archived_pastoct_2024 <- read_sheet(URL, sheet = "Archived_PastOct_2024")
+archived_2025 <- read_sheet(URL, sheet = "Archived_2025")
+active_currently <- read_sheet(URL, sheet = "Active_Jun23_2025") %>%
+  mutate(`Prize Amount` = as.list(`Prize Amount`))
+
+# wooo! 
+updated_challenges <- bind_rows(nov_2023, archived_2023, archived_2024_oct, 
+                                active_oct28, archived_pastoct_2024, 
+                                archived_2025, active_currently) %>%
+  distinct() %>%
   janitor::clean_names()
-
-# grabbing the archived challenges of 2023 to see if we have any missing: 
-arch_2023 <- read_sheet(URL, sheet = "Archived_2023")%>%
-  janitor::clean_names()
-# which ones are new?
-missing_2023 <- arch_2023 %>% 
-  filter(!(challenge_id %in% old_chal$challenge_id))
-
-# doing the same for 2024 archived challenges: 
-arch_2024 <- read_sheet(URL, sheet = "Archived_2024")%>%
-  janitor::clean_names()
-# which ones are new? 
-missing_2024 <- arch_2024 %>% 
-  filter(!(challenge_id %in% old_chal$challenge_id))
-
-# active challenges! 
-active <- read_sheet(URL, sheet = "Active_Oct28_2024") %>%
-  janitor::clean_names()
-new_active <- active %>%
-  filter(!(challenge_id %in% old_chal$challenge_id))
-
-
-## binding this back with the OG data 
-updated_challenges <- bind_rows(new_active, missing_2024, missing_2023) 
-
 
 ###############################################################################
 # step two: clean and organize data
 ################################################################################
-challenges_tidy_gs <- bind_rows(old_chal, updated_challenges) %>%
+challenges_tidy_gs <- updated_challenges %>%
   separate(primary_agency_name, 
            into = c("department", "sub_agency"), 
            remove = FALSE, 
@@ -103,7 +94,7 @@ challenges_tidy_gs <- bind_rows(old_chal, updated_challenges) %>%
          duration_days = as.character(end_date - start_date), 
          prize_num = case_when(grepl("no", prize_amount, ignore.case = T) ~ 0, 
                                TRUE ~ as.numeric(prize_amount))) %>% 
-  select(-c(end_date, start_date, key_agency_name, count, duration)) %>%
+  # select(-c(end_date, start_date, key_agency_name, count, duration)) %>%
   unique() %>%
   # tidying names to our agencies of interest: 
   mutate(tidy_agy = case_when(
@@ -175,6 +166,10 @@ challenges_tidy_gs <- bind_rows(old_chal, updated_challenges) %>%
 ###############################################################################
 # step four: get total challenges by year for all agencies:
 ###############################################################################
+# seeing if I can make quarters?
+# library(zoo)
+# as.Date(as.yearqtr(challenges_tidy_gs$start_date,format="%YQ%q"))
+
 type_summary <- challenges_tidy_gs %>%
   filter(start_year >= min_year) %>%
   group_by(start_year, env_flag, tidy_challenge_type) %>%
@@ -207,11 +202,12 @@ env_trend_plot_data <- env_trend_summary %>%
 
 # plottin' 
 challenges_tech <- ggplot(env_trend_plot_data, aes(x = Year, 
-                                                 y = `Tech Challenges / Agency`, 
-                                                 color =  `Agency Type`)) + 
+                                                   y = `Tech Challenges / Agency`, 
+                                                   color =  `Agency Type`)) + 
   geom_line(linewidth = 2, alpha = 0.75) + 
-  xlim(min_year, max_year) +
+  # xlim(min_year, max_year) +
   geom_point(size = 3, alpha = 0.8) + 
+  scale_x_continuous(breaks = seq(min_year, max_year, 3)) +
   scale_colour_manual(values = rev(c("#4EA324","#172F60")), 
                       name = "") + 
   theme_minimal() + 
@@ -248,7 +244,7 @@ challenges_plotly
 #                           layout(plot_bgcolor='transparent') %>%
 #                           layout(paper_bgcolor='transparent'),
 #                         "results/tech_challenges.html")
-# 
+
 # put_object(
 #   file = file.path("results/tech_challenges.html"),
 #   object = "/innovation-indicators/I2V2/tech_challenges.html",
@@ -260,7 +256,7 @@ challenges_plotly
 # fig <- data.frame(figure = "Tech Challenges",
 #                   s3_link = "s3://tech-team-data/innovation-indicators/I2V2/tech_challenges.html",
 #                   public_link = "https://tech-team-data.s3.us-east-1.amazonaws.com/innovation-indicators/I2V2/tech_challenges.html")
-# 
+
 # range_write("https://docs.google.com/spreadsheets/d/1nGUFCxrHxb7B9sN6MXAn02qJOgnlFB9T8vnb_OfV33c/edit?gid=1922074841#gid=1922074841",
 #             data = fig, range = "assets!A4:C4", col_names = FALSE)
 
@@ -300,7 +296,7 @@ final_summary_table <- bind_rows(filler_rows, challenges_summary_table) %>%
 # I2v1 data came from here: https://docs.google.com/spreadsheets/d/1jbohDzXp9AP81o22cOyv64JBPWNrZh_N9mQjfqCNk-4/edit?gid=1181720149#gid=1181720149
 chal_page_summary <- challenges_tidy_gs %>%
   filter(start_year >= min_year & start_year <= max_year) %>%
-  group_by(start_year, tidy_agy, env_flag, tidy_challenge_type) %>%
+  group_by(start_year, category, tidy_agy, env_flag, tidy_challenge_type) %>%
   summarize(total_challenges = length(unique(challenge_id))) %>%
   pivot_wider(., names_from = tidy_challenge_type, values_from = total_challenges) %>%
   mutate_all(., ~replace_na(., 0)) %>%
@@ -310,14 +306,14 @@ chal_page_summary <- challenges_tidy_gs %>%
 # agency breakdown: 
 agy_breakdown <- chal_page_summary %>%
   filter(env_flag != "Other Agency") %>%
-  group_by(tidy_agy, env_flag) %>%
+  group_by(tidy_agy, env_flag, category) %>%
   summarize(total_challenges = sum(total_challenges), 
             total_tech_challenges = sum(`Analysis, Tech Software`)) %>%
   mutate(tech_nontech_chal = round(total_tech_challenges/total_challenges, 3))
 
 # adding to our workbook! 
 # range_write("https://docs.google.com/spreadsheets/d/1nGUFCxrHxb7B9sN6MXAn02qJOgnlFB9T8vnb_OfV33c/edit?gid=1922074841#gid=1922074841",
-#             data = agy_breakdown, range = "challenge_summary_tables!A1:E12", col_names = TRUE)
+#             data = agy_breakdown, range = "challenge_summary_tables!A1:F12", col_names = TRUE)
 
 
 # means and number of agencies participating: 
@@ -346,4 +342,4 @@ flag_breakdown <- challenges_tidy_gs %>%
 # adding to our workbook! 
 # range_write("https://docs.google.com/spreadsheets/d/1nGUFCxrHxb7B9sN6MXAn02qJOgnlFB9T8vnb_OfV33c/edit?gid=1922074841#gid=1922074841",
 #             data = flag_breakdown, range = "challenge_summary_tables!A15:G18", col_names = TRUE)
-# 
+
