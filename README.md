@@ -17,9 +17,9 @@ Code for investigating the use of Challenges/Prize Competitions by federal agenc
 
 ### hiring
 Code for investigating federal hiring actions for innovative talent at environmental agencies/bureaus.
-* Use the files in `hiring_analysis_code` to pull our latest dataset from USAJobs and perform the qualitative analysis using ChatGPT.
-* Run that data through `usaj_analysis.py` to pull out the core statistics used on the website.
-* Run `hiring_innovation_indicators_figures` in `innovation_indicator_website_code` to produce the visualizations. 
+* Use the files in `innovation_indicator_website_code` to pull the latest historic USAJobs API data for our agencies of interest and produce the visualizations on our website. 
+* The files in `hiring_analysis_code` show previous analyses using the USAJobs search API and performs qualitative analysis using ChatGPT.
+* Run the data produced above through `usaj_analysis.py` to pull out the core statistics used on the website.
 
 ### open-source
 Code for investigating the use of open source software by environmental agencies.
