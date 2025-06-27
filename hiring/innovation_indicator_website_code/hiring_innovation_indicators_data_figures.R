@@ -1,4 +1,10 @@
-### Libraires & Creds###########################################################
+###############################################################################
+# USAJobs - Innovation Indicators
+# last updated: June 24th 2025
+# code to pull the latest hiring data, tidy the data, update our spreadsheet,
+# and develop data viz
+###############################################################################
+### Libraires & Creds
 library(httr)
 library(jsonlite)
 library(tidyverse)
@@ -6,6 +12,7 @@ library(janitor)
 library(plotly)
 library(googlesheets4)
 library(aws.s3)
+library(zoo)
 
 # credentials: 
 
@@ -297,24 +304,82 @@ hist_jobs_gs_f <- hist_jobs_gs %>%
 # step seven: figure dev
 ################################################################################
 # grabbing a year summary 
-hist_jobs_summary <- hist_jobs_clean %>%
+# hist_jobs_summary <- hist_jobs_clean %>%
+#   # note that 2025 only contains half of the year
+#   filter(open_year >= 2020 & open_year <= 2025) %>%
+#   group_by(clean_name, type, category, open_year) %>%
+#   summarize(announcements = n(), 
+#             num_it = sum(it_flag == "IT")) %>%
+#   mutate(pct_it = round(100*(num_it/announcements), 2)) %>%
+#   mutate(clean_type = case_when(type == "enviro_agy" ~ "Environmental Agency", 
+#                                 TRUE ~ "Benchmark Agency")) %>%
+#   rename(Year = open_year, 
+#          `% IT` = pct_it, 
+#          `Agency` = clean_name)
+# 
+# # quick plot: 
+# hiring_plot <- ggplot(hist_jobs_summary, 
+#                       aes(x = Year, y = `% IT`, color = `Agency`, group = clean_type)) + 
+#   geom_line(linewidth = 1.5, alpha = 0.75) + 
+#   geom_point(aes(text = paste0( "Agency: ", `Agency`,
+#                                 "; Category: ", category, 
+#                                 "; Announcements: ", announcements, 
+#                                 "; % IT: ", `% IT`, "%")), size = 2) + 
+#   geom_smooth(method = "lm", color = "black", se = F, lty = "dashed") + 
+#   scale_color_manual(values = cat_palette(16), 
+#                      name = "") + 
+#   facet_wrap(~clean_type) + 
+#   # geom_abline(intercept = 0, slope = 0) + 
+#   labs(x = "Year of Job Announcement", 
+#        y = "% of IT Announcements")+ 
+#   theme_minimal() + 
+#   theme(legend.position = "right", 
+#         text = element_text(size = 13), 
+#         legend.text = element_text(size = 10), 
+#         legend.title = element_text(size = 11), 
+#         axis.text.x = element_text(margin = margin(t = 10, r = 0, 
+#                                                    b = 0, l = 0)), 
+#         axis.title.x = element_text(margin = margin(t = -5, r = 0, 
+#                                                     b = 0, l = 0)), 
+#         axis.text.y = element_text(margin = margin(t = 0, r = 10, 
+#                                                    b = 0, l = 0)), 
+#         axis.title.y = element_text(margin = margin(t = 0, r = -5, 
+#                                                     b = 0, l = 0))) +
+#   theme(legend.position = "bottom")
+# 
+# hiring_plotly <- plotly::ggplotly(hiring_plot, 
+#                                   tooltip = c("text"))
+# hiring_plotly
+
+
+# plotting data with quarters on the x-axis
+quarter_hiring_plot <- hist_jobs_clean %>%
+  # note that 2025 only contains half of the year
+  mutate(open_year_q = as.yearqtr(open_date_clean, format = "%YQ%q"))%>%
   # note that 2025 only contains half of the year
   filter(open_year >= 2020 & open_year <= 2025) %>%
-  group_by(clean_name, type, category, open_year) %>%
+  group_by(clean_name, type, category, open_year_q) %>%
   summarize(announcements = n(), 
             num_it = sum(it_flag == "IT")) %>%
   mutate(pct_it = round(100*(num_it/announcements), 2)) %>%
   mutate(clean_type = case_when(type == "enviro_agy" ~ "Environmental Agency", 
                                 TRUE ~ "Benchmark Agency")) %>%
-  rename(Year = open_year, 
+  rename(Year_a = open_year_q, 
          `% IT` = pct_it, 
-         `Agency` = clean_name)
+         `Agency` = clean_name) %>%
+  # these haven't happend yet...?
+  filter(!(Year_a %in% c("2025 Q3", "2025 Q4"))) %>%
+  filter(!(Agency == "NOAA" & Year_a == "2025 Q2"))
 
-# quick plot: 
-hiring_plot <- ggplot(hist_jobs_summary, 
-                      aes(x = Year, y = `% IT`, color = `Agency`, group = clean_type)) + 
+plot_q_hiring <- ggplot(quarter_hiring_plot, 
+      aes(x = Year_a, y = `% IT`, color = `Agency`, group = clean_type)) + 
+  geom_point(linewidth = 1.5, alpha = 0.75)+ 
   geom_line(linewidth = 1.5, alpha = 0.75) + 
+  zoo::scale_x_yearqtr(format = '%Y') +
+  # scale_x_continuous(breaks = c("2020 Q1", "2023 Q1", "2025 Q1"),
+                     # labels = c("2020", "2023", "2025")) +
   geom_point(aes(text = paste0( "Agency: ", `Agency`,
+                                "; Year: ", `Year_a`,
                                 "; Category: ", category, 
                                 "; Announcements: ", announcements, 
                                 "; % IT: ", `% IT`, "%")), size = 2) + 
@@ -323,13 +388,13 @@ hiring_plot <- ggplot(hist_jobs_summary,
                      name = "") + 
   facet_wrap(~clean_type) + 
   # geom_abline(intercept = 0, slope = 0) + 
-  labs(x = "Year of Job Announcement", 
+  labs(x = "Year & Quarter of Job Announcement", 
        y = "% of IT Announcements")+ 
   theme_minimal() + 
   theme(legend.position = "right", 
-        text = element_text(size = 13), 
-        legend.text = element_text(size = 10), 
-        legend.title = element_text(size = 11), 
+        text = element_text(size = 15), 
+        legend.text = element_text(size = 12), 
+        legend.title = element_text(size = 13), 
         axis.text.x = element_text(margin = margin(t = 10, r = 0, 
                                                    b = 0, l = 0)), 
         axis.title.x = element_text(margin = margin(t = -5, r = 0, 
@@ -340,14 +405,57 @@ hiring_plot <- ggplot(hist_jobs_summary,
                                                     b = 0, l = 0))) +
   theme(legend.position = "bottom")
 
-hiring_plotly <- plotly::ggplotly(hiring_plot, 
+
+hiring_plotly_quarterly <- plotly::ggplotly(plot_q_hiring, 
                                   tooltip = c("text"))
-hiring_plotly
+hiring_plotly_quarterly
+
+# noaa_test <-  hist_jobs_clean %>%
+#   # note that 2025 only contains half of the year
+#   mutate(open_year_q = as.yearqtr(open_date_clean, format = "%YQ%q")) %>%
+#   filter(clean_name == "NOAA")
+
+# i'm also just curious on overall jobs posted over time
+# announcements <- ggplot(quarter_hiring_plot, 
+#       aes(x = Year_a, y =announcements, color = `Agency`, group = clean_type)) + 
+#   geom_point(linewidth = 1.5, alpha = 0.75)+ 
+#   geom_line(linewidth = 1.5, alpha = 0.75) + 
+#   geom_point(aes(text = paste0( "Agency: ", `Agency`,
+#                                 "; Year: ", `Year_a`,
+#                                 "; Category: ", category, 
+#                                 "; Announcements: ", announcements, 
+#                                 "; % IT: ", `% IT`, "%")), size = 2) + 
+#   geom_smooth(method = "lm", color = "black", se = F, lty = "dashed") + 
+#   scale_color_manual(values = cat_palette(16), 
+#                      name = "") + 
+#   facet_wrap(~clean_type) + 
+#   # geom_abline(intercept = 0, slope = 0) + 
+#   labs(x = "Year & Quarter of Job Announcement", 
+#        y = "# of Announcements")+ 
+#   theme_minimal() + 
+#   theme(legend.position = "right", 
+#         text = element_text(size = 13), 
+#         legend.text = element_text(size = 10), 
+#         legend.title = element_text(size = 11), 
+#         axis.text.x = element_text(margin = margin(t = 10, r = 0, 
+#                                                    b = 0, l = 0)), 
+#         axis.title.x = element_text(margin = margin(t = -5, r = 0, 
+#                                                     b = 0, l = 0)), 
+#         axis.text.y = element_text(margin = margin(t = 0, r = 10, 
+#                                                    b = 0, l = 0)), 
+#         axis.title.y = element_text(margin = margin(t = 0, r = -5, 
+#                                                     b = 0, l = 0))) +
+#   theme(legend.position = "bottom")
+# 
+# 
+# ann_plotly_quarterly <- plotly::ggplotly(announcements, 
+#                                             tooltip = c("text"))
+# ann_plotly_quarterly
 
 ###############################################################################
 # step eight - saving figure as an html widget and putting it on aws: 
 ###############################################################################
-# htmlwidgets::saveWidget(partial_bundle(hiring_plotly) %>%
+# htmlwidgets::saveWidget(partial_bundle(hiring_plotly_quarterly) %>%
 #                           config(displayModeBar = FALSE) %>%
 #                           config(displaylogo = FALSE) %>%
 #                           layout(xaxis = list(fixedrange = TRUE),
@@ -355,14 +463,14 @@ hiring_plotly
 #                           layout(plot_bgcolor='transparent') %>%
 #                           layout(paper_bgcolor='transparent'),
 #                         "results/historic_hiring.html")
-# 
+# #
 # put_object(
 #   file = file.path("results/historic_hiring.html"),
 #   object = "/innovation-indicators/I2V2/historic_hiring.html",
 #   acl = "public-read",
 #   bucket = "tech-team-data"
 # )
-# 
+
 # # updating our assets: 
 # fig <- data.frame(figure = "Tech Hiring Over Time",
 #                   s3_link = "s3://tech-team-data/innovation-indicators/I2V2/historic_hiring.html",
@@ -371,4 +479,34 @@ hiring_plotly
 # range_write("https://docs.google.com/spreadsheets/d/1nGUFCxrHxb7B9sN6MXAn02qJOgnlFB9T8vnb_OfV33c/edit?gid=1922074841#gid=1922074841",
 #             data = fig, range = "assets!A7:C7", col_names = FALSE)
 # 
+
+###############################################################################
+# step nine - grabbing summary trends for summary table:  
+###############################################################################
+hist_jobs_summary_2025 <- hist_jobs_clean %>%
+  # note that 2025 only contains half of the year
+  mutate(open_year_q = as.yearqtr(open_date_clean, format = "%YQ%q")) %>%
+  # these haven't happend yet...?
+  filter(!(open_year_q %in% c("2025 Q3", "2025 Q4"))) %>% 
+  # note that 2025 only contains half of the year
+  filter(open_year >= 2020 & open_year <= 2025) %>%
+  group_by(clean_name, type, category, open_year) %>%
+  summarize(announcements = n(), 
+            num_it = sum(it_flag == "IT")) %>%
+  mutate(pct_it = round(100*(num_it/announcements), 3)) %>%
+  mutate(clean_type = case_when(type == "enviro_agy" ~ "Environmental Agency", 
+                                TRUE ~ "Benchmark Agency")) %>%
+  rename(Year = open_year, 
+         `% IT` = pct_it, 
+         `Agency` = clean_name) %>%
+  filter(Year == max(Year)) %>%
+  arrange(Agency)
+
+hist_summary_2025 <- hist_jobs_summary_2025 %>%
+  rename(`'25 Percentage of IT Jobs Posted` = `% IT`) %>%
+  ungroup() %>%
+  select(`'25 Percentage of IT Jobs Posted`)
+
+# range_write("https://docs.google.com/spreadsheets/d/1nGUFCxrHxb7B9sN6MXAn02qJOgnlFB9T8vnb_OfV33c/edit?gid=1922074841#gid=1922074841",
+#             data = hist_summary_2025, range = "summary_tables!F1:F17", col_names = TRUE)
 

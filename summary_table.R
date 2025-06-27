@@ -10,15 +10,22 @@ library(reactablefmtr)
 # colors ! 
 green_palette <- c("#bdd9b6", "#9cc791", "#4ea324",
                   "#3c8e1a", "#2b7911", "darkgreen")
-
 # grab summary data from google sheets - updated automatically in scripts 
 URL <- "https://docs.google.com/spreadsheets/d/1nGUFCxrHxb7B9sN6MXAn02qJOgnlFB9T8vnb_OfV33c/edit?gid=1770424829#gid=1770424829"
 # this contains data pulled from 2020 to the later half of 2023
 summary_table <- read_sheet(URL, sheet = "summary_tables") %>%
+  rename( `'24 Workforce Tech %`= `24 Workforce Tech Percentage`, 
+          `'16 - '25 Tech Challenges` = `16 - '25 Tech Challenges`, 
+          `'25 % of IT Jobs Posted` = `25 Percentage of IT Jobs Posted`,
+          `'25 % of Repositories with Activity` = `25 Percentage of Repositories with Activity`, 
+          `'21 - '25 Repos Per Million` = `21 - '25 Repos Per Million`) %>%
   mutate(color_col = case_when(`Environmental Flag` == "Yes" ~ 1, 
                                TRUE ~ 0),
          enviro_flag = `Environmental Flag`, 
-         `'21 - '25 Repos Per Million` = as.numeric(`'21 - '25 Repos Per Million`))
+         `'21 - '25 Repos Per Million` = as.numeric(`'21 - '25 Repos Per Million`), 
+         `'25 % of Repositories with Activity` = round(`'25 % of Repositories with Activity`, 4), 
+         `'25 % of IT Jobs Posted` = round(`'25 % of IT Jobs Posted`/100, 4), 
+         `'24 Workforce Tech %` = round(`'24 Workforce Tech %`/100, 4)) 
 
 # build table! 
 summary_table_reactable <- summary_table %>% 
@@ -29,13 +36,19 @@ summary_table_reactable <- summary_table %>%
     columns = list(
       Agency = colDef(
         cell = color_tiles(., color_by = 'color_col', colors = c("#172f60", "#4ea324"))), 
-      `'24 Workforce Tech Percentage` = colDef(
+      `'24 Workforce Tech %` = colDef(
+        format = colFormat(percent = T),
         style = color_scales(summary_table, colors = green_palette)),
-      `'16 - '24 Tech Challenges` = colDef(
+      `'16 - '25 Tech Challenges` = colDef(
         style = color_scales(summary_table, colors = green_palette)),
-      `'24 - '25 IT Jobs Posted` = colDef(
+      `'25 % of IT Jobs Posted` = colDef(
+        format = colFormat(percent = T),
+        style = color_scales(summary_table, colors = green_palette)),
+      `'25 % of Repositories with Activity` = colDef(
+        format = colFormat(percent = T),
         style = color_scales(summary_table, colors = green_palette)),
       `'21 - '25 Repos Per Million` = colDef(
+        format = colFormat(separators = T),
         style = color_scales(summary_table, colors = green_palette)),
       color_col = colDef(
         show = FALSE

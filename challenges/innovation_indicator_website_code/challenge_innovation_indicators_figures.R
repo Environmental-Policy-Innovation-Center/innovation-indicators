@@ -6,6 +6,8 @@ library(tidyverse)
 library(googlesheets4)
 library(aws.s3)
 library(plotly)
+library(reactable)
+library(reactablefmtr)
 
 # Important note about the raw challenges data:
 # There isn't an API or full raw data download (as far as I can tell), so 
@@ -173,7 +175,7 @@ challenges_tidy_gs <- updated_challenges %>%
 type_summary <- challenges_tidy_gs %>%
   filter(start_year >= min_year) %>%
   group_by(start_year, env_flag, tidy_challenge_type) %>%
-  summarize(total_challenges = length(unique(challenge_id))) %>%
+  summarize(total_challenges = n()) %>%
   pivot_wider(., names_from = tidy_challenge_type, values_from = total_challenges) %>%
   mutate_all(., ~replace_na(., 0)) %>%
   rowwise() %>%
@@ -244,7 +246,7 @@ challenges_plotly
 #                           layout(plot_bgcolor='transparent') %>%
 #                           layout(paper_bgcolor='transparent'),
 #                         "results/tech_challenges.html")
-
+# 
 # put_object(
 #   file = file.path("results/tech_challenges.html"),
 #   object = "/innovation-indicators/I2V2/tech_challenges.html",
@@ -266,18 +268,25 @@ challenges_plotly
 # summary table for first page 
 # tech challenges by subagency - total count of those across the universe of data.
 challenges_summary_table <- challenges_tidy_gs %>%
+  filter(start_year >= min_year & start_year <= max_year) %>%
   # we don't need other agencies for this summary table: 
   filter(!is.na(tidy_agy)) %>%
   group_by(tidy_agy) %>%
   summarize(total_challenges = n(), 
             tech_chal = sum(start_year >= min_year & tidy_challenge_type == "Analysis, Tech Software"))
 
-# these two don't have any challenges but I still need to add so the 
+# test <- challenges_tidy_gs %>%
+#   filter(tidy_agy == "NIH")%>%
+#   filter(start_year >= min_year & start_year <= max_year) %>%
+#   distinct()
+#   
+
+# these two don't have any challenges in this time period but I still need to add so the 
 # rows line up with the summary_tables spreadsheet
 # TODO - this may change in the future
-filler_rows <- data.frame(tidy_agy = c("USFS", "USACE", "NRCS"), 
-                          total_challenges = c(0,0, 0), 
-                          tech_chal = c(0,0, 0))
+filler_rows <- data.frame(tidy_agy = c("USFS", "USACE", "NRCS", "BLM", "USGS"), 
+                          total_challenges = c(0,0, 0, 0, 0), 
+                          tech_chal = c(0,0, 0, 0, 0))
 
 # binding filler rows and renaming: 
 col_title <- paste0(min_year, " - ", max_year, " Tech Challenges")
@@ -297,7 +306,7 @@ final_summary_table <- bind_rows(filler_rows, challenges_summary_table) %>%
 chal_page_summary <- challenges_tidy_gs %>%
   filter(start_year >= min_year & start_year <= max_year) %>%
   group_by(start_year, category, tidy_agy, env_flag, tidy_challenge_type) %>%
-  summarize(total_challenges = length(unique(challenge_id))) %>%
+  summarize(total_challenges = n()) %>%
   pivot_wider(., names_from = tidy_challenge_type, values_from = total_challenges) %>%
   mutate_all(., ~replace_na(., 0)) %>%
   rowwise() %>%
@@ -315,13 +324,12 @@ agy_breakdown <- chal_page_summary %>%
 # range_write("https://docs.google.com/spreadsheets/d/1nGUFCxrHxb7B9sN6MXAn02qJOgnlFB9T8vnb_OfV33c/edit?gid=1922074841#gid=1922074841",
 #             data = agy_breakdown, range = "challenge_summary_tables!A1:F12", col_names = TRUE)
 
-
 # means and number of agencies participating: 
 flag_breakdown <- challenges_tidy_gs %>%
   filter(start_year >= min_year & start_year <= max_year) %>%
   group_by(start_year, primary_agency_name, 
            tidy_agy, env_flag, tidy_challenge_type) %>%
-  summarize(total_challenges = length(unique(challenge_id))) %>%
+  summarize(total_challenges = n()) %>%
   pivot_wider(., names_from = tidy_challenge_type, values_from = total_challenges) %>%
   mutate_all(., ~replace_na(., 0)) %>%
   # gotta grab the primary agency name and tidy agency because the EPA is sometimes
@@ -337,9 +345,74 @@ flag_breakdown <- challenges_tidy_gs %>%
             total_tech_challenges = sum(`Analysis, Tech Software`)) %>%
   mutate(tech_nontech_chal = round(total_tech_challenges/total_challenges, 3), 
          average_total_chal = round(total_challenges/unique_agencies, 3), 
-         average_tech_chal = round(total_tech_challenges/unique_agencies, 3)) 
+         average_tech_chal = round(total_tech_challenges/unique_agencies, 3))  
 
 # adding to our workbook! 
 # range_write("https://docs.google.com/spreadsheets/d/1nGUFCxrHxb7B9sN6MXAn02qJOgnlFB9T8vnb_OfV33c/edit?gid=1922074841#gid=1922074841",
 #             data = flag_breakdown, range = "challenge_summary_tables!A15:G18", col_names = TRUE)
+
+# making agy_breakdown into a fun interactive ##################################
+agy_breakdown_react <- agy_breakdown %>%
+  rename(Agency = tidy_agy, 
+         Category = category, 
+         `Total Challenges` = total_challenges, 
+         `Tech Challenges` = total_tech_challenges, 
+         `% of Tech Challenges` = tech_nontech_chal) %>%
+  mutate(color_col = case_when(env_flag == "Environmental Agency" ~ 1, 
+                               TRUE ~ 0), 
+         `Environmental Flag` = case_when(color_col == 1 ~ "Yes", 
+                                          TRUE ~ "No")) %>%
+  relocate(`Environmental Flag`, .after = Agency)
+
+chal_reactable <- agy_breakdown_react %>% 
+  reactable(
+    defaultColDef = colDef(
+      align = 'center'),
+    defaultSorted = "Agency", 
+    columns = list(
+      Agency = colDef(
+        cell = color_tiles(., color_by = 'color_col', colors = c("#172f60", "#4ea324"))), 
+      `Total Challenges` = colDef(
+        style = color_scales(agy_breakdown_react, colors = green_palette)),
+      `Tech Challenges` = colDef(
+        style = color_scales(agy_breakdown_react, colors = green_palette)),
+      `% of Tech Challenges` = colDef(
+        style = color_scales(agy_breakdown_react, colors = green_palette), 
+        format = colFormat(percent = T)),
+      color_col = colDef(
+        show = FALSE
+      ),
+      env_flag = colDef(
+        show = FALSE
+      )),
+    highlight = TRUE,
+    bordered = TRUE,
+    resizable = TRUE,
+    showSortable = TRUE,
+    searchable = TRUE,
+    defaultPageSize = 16,
+    theme = reactableTheme(
+      style = list(fontFamily = "-system-ui, -apple-system, BlinkMacSystemFont, Segoe UI, Helvetica, Arial, sans-serif")))
+
+chal_reactable
+
+############## saving #########
+# htmlwidgets::saveWidget((chal_reactable),
+#                         "results/challenges_table.html")
+# 
+# put_object(
+#   file = file.path("results/challenges_table.html"),
+#   object = "/innovation-indicators/I2V2/challenges_table.html",
+#   acl = "public-read",
+#   bucket = "tech-team-data"
+# )
+
+# updating our assets: 
+# fig <- data.frame(figure = "Challenges Table",
+#                   s3_link = "s3://tech-team-data/innovation-indicators/I2V2/challenges_table.html",
+#                   public_link = "https://tech-team-data.s3.us-east-1.amazonaws.com/innovation-indicators/I2V2/challenges_table.html")
+# 
+# 
+# range_write("https://docs.google.com/spreadsheets/d/1nGUFCxrHxb7B9sN6MXAn02qJOgnlFB9T8vnb_OfV33c/edit?gid=1922074841#gid=1922074841",
+#             data = fig, range = "assets!A8:C8", col_names = FALSE)
 
